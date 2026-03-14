@@ -151,18 +151,18 @@ function ColorBlock({ position, color, label }: { position: [number, number, num
 }
 
 export default function SetupDiagram() {
-  // Center the scene on the middle of the 11-block row
-  const centerX = 5
+  // Center scene: blocks span X=-1 (turtle) to X=9 (last buffer)
+  const centerX = 4
 
   return (
     <group position={[-centerX, 0, 0.5]}>
       {/* Ground plane */}
       <gridHelper
         args={[16, 16, '#2a2a4a', '#1a1a2e']}
-        position={[5, -0.475, -0.5]}
+        position={[4, -0.475, -0.5]}
       />
 
-      {/* ── Full-size textured blocks ── */}
+      {/* ── Full-size textured blocks (machines, monitors, storage, turtle modem) ── */}
       {allBlocks.map((block) => (
         <MinecraftBlock
           key={block.id}
@@ -174,13 +174,14 @@ export default function SetupDiagram() {
       ))}
 
       {/* ── Crafting Turtle (solid gold — UV atlas can't be cube-mapped) ── */}
+      {/* Placed next to computer, connected via adjacent Wired Modem Full Block */}
       <ColorBlock
         position={turtle.position}
         color={turtle.color}
         label={turtle.label}
       />
 
-      {/* ── Wired modems on back face of each block ── */}
+      {/* ── Wired modems on back face of machines and buffer chests ── */}
       {modems.map((modem) => (
         <WiredModem
           key={modem.id}
@@ -189,14 +190,14 @@ export default function SetupDiagram() {
         />
       ))}
 
-      {/* ── Cable backbone (Z=-1, running X=0 to X=10) ── */}
+      {/* ── Cable backbone (Z=-1, running X=-2 to X=9) ── */}
       {cablePositions.map((pos, i) => (
         <CableBlock key={`cable-${i}`} position={pos} />
       ))}
 
-      {/* ── Cable stubs: short segments connecting each modem to the backbone ── */}
-      {/* Runs in Z from modem (Z≈-0.56) to cable (Z=-1), centered at Z≈-0.75 */}
-      {Array.from({ length: 11 }, (_, i) => (
+      {/* ── Cable stubs: connect each face modem to the backbone ── */}
+      {/* Machines and buffer chests at X=0..9 */}
+      {Array.from({ length: 10 }, (_, i) => (
         <CableStub key={`stub-${i}`} position={[i, 0, -0.7]} />
       ))}
     </group>

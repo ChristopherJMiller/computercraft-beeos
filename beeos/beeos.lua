@@ -68,6 +68,12 @@ local function samplerLoop()
         tracker.addLog("Sample collection error: " .. tostring(err))
       end
 
+      -- Collect crafted templates from turtle
+      ok, err = pcall(sampler.collectFromTurtle, config)
+      if not ok then
+        tracker.addLog("Turtle collection error: " .. tostring(err))
+      end
+
       -- Check if any species need templates
       for species, data in pairs(tracker.catalog) do
         if data.samples >= 1 and data.templates == 0 then

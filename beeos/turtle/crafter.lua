@@ -1,7 +1,10 @@
 -- BeeOS Crafting Turtle
--- Runs on a crafting turtle connected to the wired network.
--- Monitors its inventory for items to craft (blank template + gene sample).
--- When items appear, arranges them in the crafting grid and crafts.
+-- Runs on a crafting turtle connected to the wired network
+-- via an adjacent Wired Modem Full Block.
+--
+-- The turtle is a dumb crafter: it monitors its inventory for items,
+-- arranges them in the crafting grid, and crafts. Results stay in
+-- inventory for the computer to pull out via the network.
 
 local POLL_INTERVAL = 2  -- seconds
 
@@ -69,21 +72,6 @@ local function arrangeCraft(slotA, slotB)
   end
 end
 
---- Push all items in inventory to adjacent storage (tries all directions).
-local function pushResults()
-  for slot = 1, 16 do
-    if turtle.getItemCount(slot) > 0 then
-      turtle.select(slot)
-      -- Try dropping in each direction
-      if not turtle.drop() then
-        if not turtle.dropUp() then
-          turtle.dropDown()
-        end
-      end
-    end
-  end
-end
-
 --- Main crafting loop.
 local function main()
   log("BeeOS Crafting Turtle started")
@@ -105,22 +93,12 @@ local function main()
         local ok = turtle.craft(1)
 
         if ok then
-          log("Template crafted successfully!")
-          -- Push result to network or adjacent inventory
-          sleep(0.5)
-          pushResults()
+          log("Template crafted! Waiting for computer to collect...")
         else
           log("Craft failed! Check recipe.")
-          -- Push items back out so they don't get stuck
-          sleep(1)
-          pushResults()
         end
-      else
-        -- Unknown items received, push them back
-        log("Unexpected items in inventory, returning...")
-        sleep(0.5)
-        pushResults()
       end
+      -- Items stay in inventory; computer pulls them out via network
     end
 
     sleep(POLL_INTERVAL)

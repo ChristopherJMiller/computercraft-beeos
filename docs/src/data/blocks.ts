@@ -116,12 +116,27 @@ export const machines: BlockDef[] = [
   },
 ]
 
-// Crafting Turtle — UV atlas texture can't map to a cube faces
+// Crafting Turtle — UV atlas texture can't map to cube faces.
+// Placed next to computer. Connected to network via adjacent Wired Modem Full Block.
 export const turtle: ColorBlockDef = {
   id: 'turtle',
   label: 'Crafting Turtle',
-  position: [7, 0, 0],
+  position: [-1, 0, 0],
   color: '#d4a017',
+}
+
+// Wired Modem Full Block — adjacent to turtle, connects it to the cable network.
+// Turtles can't equip wired modems; a full block modem next to it exposes
+// the turtle as a peripheral on the wired network.
+export const turtleModemBlock: BlockDef = {
+  id: 'turtle-modem',
+  label: 'Wired Modem (Full Block)',
+  position: [-1, 0, -1],
+  textures: {
+    top: t('cc/wired_modem_face.png'),
+    side: t('cc/wired_modem_face.png'),
+    front: t('cc/wired_modem_face.png'),
+  },
 }
 
 // ── Monitor wall (Y=1+, Z=0) ── configurable multi-block display above computer
@@ -150,7 +165,7 @@ export const storage: BlockDef[] = [
   {
     id: 'buffer-1',
     label: 'Buffer Chest (AE2 Bus)',
-    position: [8, 0, 0],
+    position: [7, 0, 0],
     textures: {
       top: t('ae2/chest_top.png'),
       front: t('ae2/chest_front.png'),
@@ -160,7 +175,7 @@ export const storage: BlockDef[] = [
   {
     id: 'buffer-2',
     label: 'Buffer Chest (AE2 Bus)',
-    position: [9, 0, 0],
+    position: [8, 0, 0],
     textures: {
       top: t('ae2/chest_top.png'),
       front: t('ae2/chest_front.png'),
@@ -170,7 +185,7 @@ export const storage: BlockDef[] = [
   {
     id: 'buffer-3',
     label: 'Buffer Chest (AE2 Bus)',
-    position: [10, 0, 0],
+    position: [9, 0, 0],
     textures: {
       top: t('ae2/chest_top.png'),
       front: t('ae2/chest_front.png'),
@@ -187,6 +202,7 @@ export interface ModemDef {
 }
 
 export const modems: ModemDef[] = [
+  // Turtle uses a Wired Modem Full Block (turtleModemBlock) instead of a face modem
   { id: 'modem-computer', position: [0, 0, 0], face: 'north' },
   { id: 'modem-apiary1', position: [1, 0, 0], face: 'north' },
   { id: 'modem-apiary2', position: [2, 0, 0], face: 'north' },
@@ -194,16 +210,16 @@ export const modems: ModemDef[] = [
   { id: 'modem-imprinter', position: [4, 0, 0], face: 'north' },
   { id: 'modem-mutatron', position: [5, 0, 0], face: 'north' },
   { id: 'modem-extractor', position: [6, 0, 0], face: 'north' },
-  { id: 'modem-turtle', position: [7, 0, 0], face: 'north' },
-  { id: 'modem-buffer1', position: [8, 0, 0], face: 'north' },
-  { id: 'modem-buffer2', position: [9, 0, 0], face: 'north' },
-  { id: 'modem-buffer3', position: [10, 0, 0], face: 'north' },
+  { id: 'modem-buffer1', position: [7, 0, 0], face: 'north' },
+  { id: 'modem-buffer2', position: [8, 0, 0], face: 'north' },
+  { id: 'modem-buffer3', position: [9, 0, 0], face: 'north' },
 ]
 
 // ── Networking cable backbone ── runs at Z=-1 behind everything
+// Extends from X=-2 (past turtle modem) to X=9 (last buffer chest)
 export const cablePositions: [number, number, number][] = Array.from(
-  { length: 11 },
-  (_, i) => [i, 0, -1] as [number, number, number]
+  { length: 12 },
+  (_, i) => [i - 2, 0, -1] as [number, number, number]
 )
 
 // Texture paths for cable and modem rendering
@@ -212,4 +228,4 @@ export const modemFaceTexture = t('cc/wired_modem_face.png')
 export const modemBackTexture = t('cc/modem_back.png')
 
 // All textured full-size blocks
-export const allBlocks: BlockDef[] = [...machines, ...monitors, ...storage]
+export const allBlocks: BlockDef[] = [...machines, ...monitors, ...storage, turtleModemBlock]

@@ -209,17 +209,7 @@ function sampler.requestTemplate(species, machines, config)
   end
 
   -- Send both to crafting turtle
-  local turtleName = config.turtle.name
-  if not turtleName then
-    -- Auto-detect turtle
-    for _, name in ipairs(peripheral.getNames()) do
-      if name:find("turtle") then
-        turtleName = name
-        break
-      end
-    end
-  end
-
+  local turtleName = sampler.findTurtle(config)
   if not turtleName then
     tracker.addLog("Cannot craft template: no crafting turtle found")
     return false
@@ -230,13 +220,48 @@ function sampler.requestTemplate(species, machines, config)
   local movedSample = inventory.move(sampleStorage, sampleSlot, turtleName, nil, 1)
 
   if movedBlank > 0 and movedSample > 0 then
-    -- Signal turtle to craft (via rednet or by convention it polls its inventory)
-    -- The turtle's crafter.lua will handle the actual crafting
+    -- Turtle polls its inventory and crafts automatically
     tracker.addLog("Crafting template: " .. species)
     return true
   end
 
   return false
+end
+
+--- Find the crafting turtle on the wired network.
+-- Uses config override or auto-detects by peripheral name.
+-- @param config BeeOS config
+-- @return Peripheral name or nil
+function sampler.findTurtle(config)
+  if config.turtle.name then
+    return config.turtle.name
+  end
+  for _, name in ipairs(peripheral.getNames()) do
+    if name:find("turtle") then
+      return name
+    end
+  end
+  return nil
+end
+
+--- Collect crafted templates from the turtle's inventory.
+-- The turtle crafts items and leaves results in inventory.
+-- The computer pulls them out to the template output chest.
+-- @param config BeeOS config
+function sampler.collectFromTurtle(config)
+  local turtleName = sampler.findTurtle(config)
+  if not turtleName then return end
+
+  local outputChest = config.chests.templateOutput
+  if not outputChest then return end
+
+  local items = inventory.listItems(turtleName)
+  for _, item in ipairs(items) do
+    local moved = inventory.move(turtleName, item.slot, outputChest)
+    if moved > 0 then
+      tracker.addLog("Collected template from turtle")
+    end
+  end
 end
 
 return sampler
