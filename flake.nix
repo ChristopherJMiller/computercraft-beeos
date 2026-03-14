@@ -29,6 +29,9 @@
             git
             gh
 
+            # Node.js (docs site)
+            nodejs_22
+
             # General utilities
             jq
           ];
