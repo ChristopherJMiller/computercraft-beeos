@@ -11,6 +11,74 @@ local surplus = require("lib.surplus")
 local mutations = require("lib.mutations")
 local display = require("lib.display")
 local state = require("lib.state")
+local updater = require("lib.updater")
+
+-- Configurable keys (section.key format)
+local CONFIGURABLE = {
+  ["chests.droneBuffer"]     = "Drone buffer chest",
+  ["chests.sampleStorage"]   = "Sample storage chest",
+  ["chests.productOutput"]   = "Product output chest (AE2 import)",
+  ["chests.templateOutput"]  = "Template output chest (AE2 import)",
+  ["chests.supplyInput"]     = "Supply input chest (AE2 export)",
+  ["chests.surplusOutput"]   = "Surplus output chest (DNA extractor)",
+  ["machines.analyzer"]      = "Forestry analyzer peripheral",
+  ["turtle.name"]            = "Crafting turtle peripheral",
+  ["display.monitorSide"]    = "Monitor peripheral name",
+  ["thresholds.minSamplesPerSpecies"] = "Min gene samples per species",
+  ["thresholds.minDronesPerSpecies"]  = "Min drones to keep per species",
+  ["thresholds.maxDronesPerSpecies"]  = "Max drones before surplus",
+  ["discovery.maxConcurrentMutations"] = "Max concurrent mutations",
+}
+
+--- Load config overrides from persistent state and merge into config.
+local function loadConfigOverrides()
+  local overrides = state.load("config_overrides", {})
+  for section, values in pairs(overrides) do
+    if type(config[section]) == "table" and type(values) == "table" then
+      for k, v in pairs(values) do
+        config[section][k] = v
+      end
+    end
+  end
+end
+
+--- Save a config override (dot path, e.g. "chests.droneBuffer").
+-- @param path Dot-separated path
+-- @param value Value to set (nil to clear)
+local function saveConfigOverride(path, value)
+  local section, key = path:match("^(%w+)%.(%w+)$")
+  if not section or not key then return false end
+  if not config[section] then return false end
+
+  -- Apply to running config
+  config[section][key] = value
+
+  -- Save to persistent overrides
+  local overrides = state.load("config_overrides", {})
+  if not overrides[section] then
+    overrides[section] = {}
+  end
+  if value == nil then
+    overrides[section][key] = nil
+    -- Clean up empty sections
+    if not next(overrides[section]) then
+      overrides[section] = nil
+    end
+  else
+    overrides[section][key] = value
+  end
+  state.save("config_overrides", overrides)
+  return true
+end
+
+--- Get a config value by dot path.
+local function getConfigValue(path)
+  local section, key = path:match("^(%w+)%.(%w+)$")
+  if section and key and config[section] then
+    return config[section][key]
+  end
+  return nil
+end
 
 -- Runtime state
 local running = true
@@ -171,11 +239,22 @@ local function touchLoop()
       if action then
         if action.action == "toggle" then
           config.layers[action.layer] = not config.layers[action.layer]
-          local status = config.layers[action.layer] and "ON" or "OFF"
-          tracker.addLog("Layer " .. action.layer .. ": " .. status)
+          local layerStatus = config.layers[action.layer] and "ON" or "OFF"
+          tracker.addLog("Layer " .. action.layer .. ": " .. layerStatus)
           state.save("layers", config.layers)
+        elseif action.action == "update" then
+          display.updateStatus = "Updating..."
+          tracker.addLog("Update started (monitor)")
+          local ok2, s, f = pcall(updater.update)
+          if ok2 then
+            display.updateStatus = s .. " OK, " .. f .. " failed"
+            tracker.addLog("Update: " .. s .. " OK, " .. f .. " failed")
+          else
+            display.updateStatus = "Update failed!"
+            tracker.addLog("Update error: " .. tostring(s))
+          end
         end
-        -- Tab changes are handled inside display.handleTouch
+        -- Tab/config changes are handled inside display.handleTouch
       end
     end
   end
@@ -212,10 +291,17 @@ local function terminalLoop()
       print("Shutting down...")
 
     elseif cmd == "status" then
+      local layerInfo = {
+        { key = "tracker",   num = 0, name = "Passive Tracker" },
+        { key = "apiary",    num = 1, name = "Apiary Manager" },
+        { key = "sampler",   num = 2, name = "Sample & Template Manager" },
+        { key = "discovery", num = 3, name = "Auto-Discovery" },
+      }
       print("Layers:")
-      for layer, enabled in pairs(config.layers) do
+      for _, info in ipairs(layerInfo) do
+        local enabled = config.layers[info.key]
         term.setTextColor(enabled and colors.lime or colors.red)
-        print("  " .. layer .. ": " .. (enabled and "ON" or "OFF"))
+        print("  L" .. info.num .. " " .. info.name .. ": " .. (enabled and "ON" or "OFF"))
       end
       term.setTextColor(colors.white)
 
@@ -268,20 +354,144 @@ local function terminalLoop()
       end
       term.setTextColor(colors.white)
 
+    elseif cmd == "layers" then
+      local layerDescs = {
+        { num = 0, key = "tracker",   name = "Passive Tracker",
+          desc = "Scans all inventories and catalogs every bee"
+            .. " species, tracking drones, princesses, samples,"
+            .. " and templates." },
+        { num = 1, key = "apiary",    name = "Apiary Manager",
+          desc = "Manages industrial apiaries: loads princesses"
+            .. " and drones, collects products, restarts stalled"
+            .. " breeding." },
+        { num = 2, key = "sampler",   name = "Sample & Template Manager",
+          desc = "Routes drones to the Genetic Sampler, crafts"
+            .. " templates via turtle, manages surplus drones to"
+            .. " DNA Extractor." },
+        { num = 3, key = "discovery", name = "Auto-Discovery",
+          desc = "Loads the mutation graph, finds undiscovered"
+            .. " species, and breeds them in the Mutatron"
+            .. " automatically." },
+      }
+      for _, l in ipairs(layerDescs) do
+        local enabled = config.layers[l.key]
+        term.setTextColor(colors.yellow)
+        write("  L" .. l.num .. " " .. l.name)
+        term.setTextColor(enabled and colors.lime or colors.red)
+        print(" [" .. (enabled and "ON" or "OFF") .. "]")
+        term.setTextColor(colors.lightGray)
+        print("     " .. l.desc)
+        print()
+      end
+      term.setTextColor(colors.white)
+
     elseif cmd == "log" then
       for i = 1, math.min(10, #tracker.log) do
         local entry = tracker.log[i]
         print("  " .. (entry.message or ""))
       end
 
+    elseif cmd == "config" then
+      if not parts[2] then
+        -- Show all configurable settings
+        print("Configuration (use 'config <key> <value>' to set):")
+        local sections = {}
+        for path in pairs(CONFIGURABLE) do
+          local section = path:match("^(%w+)%.")
+          if not sections[section] then
+            sections[section] = {}
+            sections[section]._order = section
+          end
+          sections[section][#sections[section] + 1] = path
+        end
+        for _, paths in pairs(sections) do
+          table.sort(paths)
+          for _, path in ipairs(paths) do
+            local val = getConfigValue(path)
+            local display_val = val == nil and "<not set>" or tostring(val)
+            term.setTextColor(val and colors.lime or colors.lightGray)
+            print(string.format("  %-38s %s", path, display_val))
+          end
+        end
+        term.setTextColor(colors.white)
+
+      elseif parts[2] == "clear" and parts[3] then
+        -- Clear an override
+        local path = parts[3]
+        if CONFIGURABLE[path] then
+          saveConfigOverride(path, nil)
+          print("Cleared: " .. path)
+          tracker.addLog("Config cleared: " .. path)
+        else
+          print("Unknown key: " .. path)
+        end
+
+      elseif parts[3] then
+        -- Set a value
+        local path = parts[2]
+        if CONFIGURABLE[path] then
+          local value = table.concat(parts, " ", 3)
+          -- Auto-detect numeric values
+          local numVal = tonumber(value)
+          if numVal then value = numVal end
+          saveConfigOverride(path, value)
+          term.setTextColor(colors.lime)
+          print("Set " .. path .. " = " .. tostring(value))
+          term.setTextColor(colors.white)
+          tracker.addLog("Config set: " .. path .. " = " .. tostring(value))
+        else
+          print("Unknown key: " .. path)
+          print("Run 'config' to see available keys.")
+        end
+
+      else
+        -- Show a section or single key
+        local filter = parts[2]
+        local found = false
+        for path, desc in pairs(CONFIGURABLE) do
+          if path:find(filter, 1, true) then
+            local val = getConfigValue(path)
+            local display_val = val == nil and "<not set>" or tostring(val)
+            term.setTextColor(val and colors.lime or colors.lightGray)
+            print(string.format("  %-38s %s", path, display_val))
+            term.setTextColor(colors.lightGray)
+            print("    " .. desc)
+            term.setTextColor(colors.white)
+            found = true
+          end
+        end
+        if not found then
+          print("No config keys matching: " .. filter)
+        end
+      end
+
+    elseif cmd == "update" then
+      print("Updating BeeOS from GitHub...")
+      local successCount, failCount = updater.update(print)
+      print()
+      if failCount == 0 then
+        term.setTextColor(colors.lime)
+        print(string.format("Updated %d files.", successCount))
+        term.setTextColor(colors.white)
+        print("Reboot to apply changes (run 'stop' then reboot).")
+      else
+        term.setTextColor(colors.orange)
+        print(string.format("%d OK, %d failed.", successCount, failCount))
+        term.setTextColor(colors.white)
+      end
+      tracker.addLog("Update: " .. successCount .. " OK, " .. failCount .. " failed")
+
     elseif cmd == "help" then
       print("Commands:")
       print("  status       - Show system status")
+      print("  layers       - Describe what each layer does")
       print("  species      - List all species")
       print("  log          - Show recent activity")
       print("  enable <l>   - Enable a layer")
       print("  disable <l>  - Disable a layer")
       print("  target <sp>  - Prioritize a species")
+      print("  config       - View/set configuration")
+      print("  update       - Update BeeOS from GitHub")
       print("  rescan       - Rescan network")
       print("  stop         - Shut down BeeOS")
 
@@ -293,6 +503,9 @@ end
 
 --- Main entry point
 local function main()
+  -- Load config overrides from persistent state
+  loadConfigOverrides()
+
   -- Restore persisted layer states
   local savedLayers = state.load("layers")
   if savedLayers then

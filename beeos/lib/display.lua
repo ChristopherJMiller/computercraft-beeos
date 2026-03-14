@@ -4,6 +4,7 @@
 local tracker = require("lib.tracker")
 local apiary = require("lib.apiary")
 local discovery = require("lib.discovery")
+local state = require("lib.state")
 
 local display = {}
 
@@ -11,7 +12,8 @@ local display = {}
 display.monitor = nil
 display.monitorName = nil
 display.scrollOffset = 0
-display.activeTab = "species"  -- species, apiaries, discovery, log
+display.activeTab = "species"  -- species, apiaries, discovery, log, config
+display.config = nil  -- reference to live config (set by init)
 
 -- Layer toggle states (synced from beeos.lua)
 display.layerStates = {
@@ -21,9 +23,29 @@ display.layerStates = {
   discovery = false,
 }
 
+-- Config tab state
+display.pickerMode = nil    -- nil or { role = "chests.droneBuffer", label = "Drone Buffer" }
+display.pickerList = {}     -- list of peripheral names for picker
+display.pickerScroll = 0
+display.updateStatus = nil  -- nil or "updating" or "done: 16 OK, 0 failed"
+
+-- Config roles displayed on Config tab
+local CONFIG_ROLES = {
+  { key = "chests.droneBuffer",    label = "Drone Buffer" },
+  { key = "chests.sampleStorage",  label = "Sample Storage" },
+  { key = "chests.productOutput",  label = "Product Output" },
+  { key = "chests.templateOutput", label = "Template Output" },
+  { key = "chests.supplyInput",    label = "Supply Input" },
+  { key = "chests.surplusOutput",  label = "Surplus Output" },
+  { key = "turtle.name",          label = "Turtle" },
+  { key = "machines.analyzer",    label = "Analyzer" },
+}
+
 --- Initialize the display.
 -- @param config BeeOS config
 function display.init(config)
+  display.config = config
+
   -- Find monitor
   if config.display.monitorSide then
     display.monitor = peripheral.wrap(config.display.monitorSide)
@@ -59,13 +81,41 @@ local function drawText(mon, x, y, text, fg, bg)
   mon.write(text)
 end
 
+--- Get a config value by dot path from live config.
+local function getConfigValue(path)
+  if not display.config then return nil end
+  local section, key = path:match("^(%w+)%.(%w+)$")
+  if section and key and display.config[section] then
+    return display.config[section][key]
+  end
+  return nil
+end
+
+--- Save a config override from the display.
+local function saveConfigValue(path, value)
+  if not display.config then return end
+  local section, key = path:match("^(%w+)%.(%w+)$")
+  if not section or not key then return end
+  if not display.config[section] then return end
+
+  display.config[section][key] = value
+
+  local overrides = state.load("config_overrides", {})
+  if not overrides[section] then
+    overrides[section] = {}
+  end
+  overrides[section][key] = value
+  state.save("config_overrides", overrides)
+end
+
 --- Draw the tab bar at the top.
 local function drawTabs(mon, w)
   local tabs = {
     { id = "species", label = "Species" },
     { id = "apiaries", label = "Apiaries" },
-    { id = "discovery", label = "Discovery" },
+    { id = "discovery", label = "Discov" },
     { id = "log", label = "Log" },
+    { id = "config", label = "Config" },
   }
 
   local x = 1
@@ -286,6 +336,105 @@ local function drawLog(mon, w, h, startY)
   end
 end
 
+--- Scan network peripherals for the picker, filtered by role type.
+local function scanPeripherals(roleKey)
+  local results = {}
+  for _, name in ipairs(peripheral.getNames()) do
+    local pType = peripheral.getType(name)
+    if roleKey:find("^chests%.") then
+      -- For chest roles, show anything with an inventory (has .size())
+      local p = peripheral.wrap(name)
+      if p and p.size then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "turtle.name" then
+      if pType and pType:find("turtle") then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "machines.analyzer" then
+      -- Forestry analyzer or anything with bee analysis methods
+      if name:find("analyzer") or name:find("forestry") then
+        results[#results + 1] = name
+      end
+    else
+      results[#results + 1] = name
+    end
+  end
+  table.sort(results)
+  return results
+end
+
+--- Draw the config tab (normal mode — shows role assignments).
+local function drawConfig(mon, w, h, startY)
+  local y = startY
+
+  drawText(mon, 1, y, "Configuration", colors.yellow, colors.black)
+  y = y + 1
+  drawLine(mon, y, w, "-")
+  y = y + 1
+
+  -- Column positions
+  local nameCol = 1
+  local valueCol = 19
+  local scanCol = w - 5
+
+  for _, role in ipairs(CONFIG_ROLES) do
+    if y > h - 2 then break end
+
+    local val = getConfigValue(role.key)
+    local displayVal = val or "<not set>"
+
+    -- Truncate long peripheral names
+    local maxValLen = scanCol - valueCol - 1
+    if #displayVal > maxValLen then
+      displayVal = displayVal:sub(1, maxValLen - 1) .. "~"
+    end
+
+    drawText(mon, nameCol, y, role.label, colors.white, colors.black)
+    drawText(mon, valueCol, y, displayVal, val and colors.lime or colors.lightGray)
+
+    -- [Scan] button
+    drawText(mon, scanCol, y, "[Scan]", colors.cyan, colors.black)
+    y = y + 1
+  end
+
+  -- Update button
+  y = y + 1
+  if y <= h then
+    if display.updateStatus then
+      drawText(mon, 1, y, display.updateStatus, colors.yellow, colors.black)
+    else
+      drawText(mon, 1, y, " [Update BeeOS] ", colors.white, colors.purple)
+    end
+  end
+end
+
+--- Draw the peripheral picker overlay.
+local function drawPicker(mon, w, h, startY)
+  local y = startY
+
+  drawText(mon, 1, y, "Select: " .. display.pickerMode.label, colors.yellow, colors.black)
+  drawText(mon, w - 5, y, "[Back]", colors.red, colors.black)
+  y = y + 1
+  drawLine(mon, y, w, "-")
+  y = y + 1
+
+  -- "<none>" option to clear
+  drawText(mon, 2, y, "<clear>", colors.orange, colors.black)
+  y = y + 1
+
+  local maxRows = h - y
+  for i = 1 + display.pickerScroll, math.min(#display.pickerList, maxRows + display.pickerScroll) do
+    if y > h then break end
+    drawText(mon, 2, y, display.pickerList[i], colors.white, colors.black)
+    y = y + 1
+  end
+
+  if #display.pickerList == 0 then
+    drawText(mon, 2, y, "No peripherals found", colors.lightGray, colors.black)
+  end
+end
+
 --- Render the full display.
 function display.render()
   if not display.monitor then return end
@@ -306,10 +455,15 @@ function display.render()
   -- Layer toggles (line 2)
   drawToggles(mon, w, 2)
 
+  -- Separator
+  drawLine(mon, 3, w, "-")
+
   -- Content area starts at line 4
   local startY = 4
 
-  if display.activeTab == "species" then
+  if display.pickerMode then
+    drawPicker(mon, w, h, startY)
+  elseif display.activeTab == "species" then
     drawSpecies(mon, w, h, startY)
   elseif display.activeTab == "apiaries" then
     drawApiaries(mon, w, h, startY)
@@ -317,6 +471,8 @@ function display.render()
     drawDiscovery(mon, w, h, startY)
   elseif display.activeTab == "log" then
     drawLog(mon, w, h, startY)
+  elseif display.activeTab == "config" then
+    drawConfig(mon, w, h, startY)
   end
 
   -- Reset colors
@@ -330,11 +486,47 @@ end
 -- @return Table describing the action, or nil
 function display.handleTouch(x, y)
   if not display.monitor then return nil end
+  local w = select(1, display.monitor.getSize())
 
+  -- Picker mode touch handling
+  if display.pickerMode then
+    -- [Back] button (top-right area)
+    if y == 4 and x >= w - 5 then
+      display.pickerMode = nil
+      display.pickerList = {}
+      display.pickerScroll = 0
+      return { action = "tab", tab = "config" }
+    end
+
+    -- <clear> option (line 6 = startY + 2)
+    if y == 6 then
+      saveConfigValue(display.pickerMode.key, nil)
+      tracker.addLog("Config cleared: " .. display.pickerMode.label)
+      display.pickerMode = nil
+      display.pickerList = {}
+      display.pickerScroll = 0
+      return { action = "config_set" }
+    end
+
+    -- Peripheral selection (lines 7+)
+    local idx = (y - 7) + 1 + display.pickerScroll
+    if idx >= 1 and idx <= #display.pickerList then
+      local selected = display.pickerList[idx]
+      saveConfigValue(display.pickerMode.key, selected)
+      tracker.addLog("Config set: " .. display.pickerMode.label .. " = " .. selected)
+      display.pickerMode = nil
+      display.pickerList = {}
+      display.pickerScroll = 0
+      return { action = "config_set" }
+    end
+
+    return nil
+  end
+
+  -- Tab selection (line 1)
   if y == 1 then
-    -- Tab selection
-    local tabs = { "species", "apiaries", "discovery", "log" }
-    local tabWidths = { 9, 10, 11, 5 }  -- " Species ", " Apiaries ", " Discovery ", " Log "
+    local tabs = { "species", "apiaries", "discovery", "log", "config" }
+    local tabWidths = { 9, 10, 8, 5, 8 }
     local tx = 1
     for i, tab in ipairs(tabs) do
       if x >= tx and x < tx + tabWidths[i] then
@@ -346,10 +538,8 @@ function display.handleTouch(x, y)
     end
   end
 
+  -- Layer toggles (line 2)
   if y == 2 then
-    -- Layer toggles
-    -- "Layers: Track:ON  Apiary:OFF Sample:OFF Disco:OFF"
-    -- Rough x ranges (these are approximate, depends on rendering)
     local ranges = {
       { 9, 18, "tracker" },
       { 19, 29, "apiary" },
@@ -360,6 +550,27 @@ function display.handleTouch(x, y)
       if x >= range[1] and x <= range[2] then
         return { action = "toggle", layer = range[3] }
       end
+    end
+  end
+
+  -- Config tab specific touches
+  if display.activeTab == "config" then
+    local scanCol = w - 5
+
+    -- [Scan] buttons: roles start at line 6 (startY + header + separator)
+    for i, role in ipairs(CONFIG_ROLES) do
+      if y == 4 + 2 + (i - 1) and x >= scanCol then
+        display.pickerMode = { key = role.key, label = role.label }
+        display.pickerList = scanPeripherals(role.key)
+        display.pickerScroll = 0
+        return { action = "picker_open" }
+      end
+    end
+
+    -- [Update BeeOS] button
+    local updateY = 4 + 2 + #CONFIG_ROLES + 1
+    if y == updateY and not display.updateStatus then
+      return { action = "update" }
     end
   end
 
