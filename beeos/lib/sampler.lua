@@ -9,7 +9,7 @@ local sampler = {}
 
 -- Current state
 sampler.state = "idle"  -- idle, sampling, waiting_output
-sampler.currentSpecies = nil
+sampler.activeSpecies = {}  -- { [machineNamea] = speciesName }
 
 --- Process drones in the buffer: route to sampler or surplus.
 -- @param machines Table from network.scan()
@@ -57,49 +57,54 @@ end
 -- @param config BeeOS config
 -- @return boolean success
 function sampler.sendToSampler(fromPeri, fromSlot, machines, config)
-  -- Find an available sampler
-  local samplerName
+  -- Build list of all available samplers
+  local samplers = {}
   if config.machines.samplers then
-    samplerName = config.machines.samplers[1]
+    for _, name in ipairs(config.machines.samplers) do
+      samplers[name] = peripheral.wrap(name)
+    end
   else
-    samplerName = next(machines.sampler or {})
+    samplers = machines.sampler or {}
   end
 
-  if not samplerName then return false end
-
-  -- Check sampler isn't busy (has output items to collect first)
-  local sampPeri = peripheral.wrap(samplerName)
-  if sampPeri then
-    local sampSize = sampPeri.size and sampPeri.size() or 0
-    for slot = 1, sampSize do
-      local meta = sampPeri.getItemMeta and sampPeri.getItemMeta(slot)
-      if meta then
-        local n = meta.name or ""
-        if n:find("gene_sample") and not n:find("gene_sample_blank") then
-          return false  -- Output sample waiting to be collected
+  -- Try each sampler until we find an idle one
+  for samplerName, sampPeri in pairs(samplers) do
+    if sampPeri then
+      -- Check if sampler is busy
+      local busy = false
+      local sampSize = sampPeri.size and sampPeri.size() or 0
+      for slot = 1, sampSize do
+        local meta = sampPeri.getItemMeta and sampPeri.getItemMeta(slot)
+        if meta then
+          local n = meta.name or ""
+          if n:find("gene_sample") and not n:find("gene_sample_blank") then
+            busy = true; break
+          end
+          if n:find("bee_") then
+            busy = true; break
+          end
         end
-        if n:find("bee_") then
-          return false  -- Bee still in machine
+      end
+
+      if not busy then
+        -- Ensure labware and blank samples
+        sampler.ensureLabware(samplerName, machines, config)
+        sampler.ensureBlankSamples(samplerName, machines, config)
+
+        -- Send the drone
+        local moved = inventory.move(fromPeri, fromSlot, samplerName)
+        if moved > 0 then
+          local info = bee.inspect(peripheral.wrap(fromPeri), fromSlot)
+          sampler.state = "sampling"
+          local species = info and info.species or "Unknown"
+          sampler.activeSpecies[samplerName] = species
+          tracker.addLog("Sampling: " .. species .. " (" .. samplerName .. ")")
+          return true
         end
       end
     end
   end
 
-  -- Ensure labware is available
-  sampler.ensureLabware(samplerName, machines, config)
-
-  -- Ensure blank gene samples are available
-  sampler.ensureBlankSamples(samplerName, machines, config)
-
-  -- Send the drone
-  local moved = inventory.move(fromPeri, fromSlot, samplerName)
-  if moved > 0 then
-    local info = bee.inspect(peripheral.wrap(fromPeri), fromSlot)
-    sampler.state = "sampling"
-    sampler.currentSpecies = info and info.species or "Unknown"
-    tracker.addLog("Sampling: " .. (sampler.currentSpecies or "?"))
-    return true
-  end
   return false
 end
 
@@ -163,15 +168,19 @@ function sampler.collectOutput(machines, config)
           local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
           if moved > 0 then
             -- Check if this is a species sample (matches a known species or
-            -- the species we're currently sampling)
+            -- the species we're currently sampling on this machine)
             local isSpeciesSample = false
-            if sampler.currentSpecies and displayName:find(sampler.currentSpecies, 1, true) then
+            local currentSp = sampler.activeSpecies[samplerName]
+            if currentSp and displayName:find(currentSp, 1, true) then
               isSpeciesSample = true
             end
             if isSpeciesSample then
-              tracker.addLog("Species sample: " .. sampler.currentSpecies .. " -> storage")
-              sampler.state = "idle"
-              sampler.currentSpecies = nil
+              tracker.addLog("Species sample: " .. currentSp .. " -> storage")
+              sampler.activeSpecies[samplerName] = nil
+              -- Set state to idle only if no other samplers are active
+              if not next(sampler.activeSpecies) then
+                sampler.state = "idle"
+              end
             else
               -- Got a trait sample (speed, lifespan, etc.) — still useful
               -- but keep sampling for the species chromosome

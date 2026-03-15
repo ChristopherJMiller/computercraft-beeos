@@ -16,10 +16,10 @@ config.layers = {
 
 -- === Timing (seconds) ===
 config.timing = {
-  trackerInterval = 30,   -- How often to scan inventories
-  apiaryInterval = 10,    -- How often to check apiaries
-  samplerInterval = 15,   -- How often to check sampler status
-  discoveryInterval = 20, -- How often to check discovery progress
+  trackerInterval = 15,   -- How often to scan inventories
+  apiaryInterval = 5,     -- How often to check apiaries
+  samplerInterval = 5,    -- How often to check sampler status
+  discoveryInterval = 10, -- How often to check discovery progress
 }
 
 -- === Thresholds ===

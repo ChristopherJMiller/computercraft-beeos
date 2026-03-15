@@ -4,6 +4,9 @@
 local tracker = require("lib.tracker")
 local apiary = require("lib.apiary")
 local discovery = require("lib.discovery")
+local sampler = require("lib.sampler")
+local imprinter = require("lib.imprinter")
+local analyzer = require("lib.analyzer")
 local inventory = require("lib.inventory")
 local state = require("lib.state")
 
@@ -13,8 +16,9 @@ local display = {}
 display.monitor = nil
 display.monitorName = nil
 display.scrollOffset = 0
-display.activeTab = "species"  -- species, apiaries, discovery, log, config
+display.activeTab = "species"  -- species, machines, discovery, log, config
 display.config = nil  -- reference to live config (set by init)
+display.machines = nil  -- reference to network.scan() result (set by beeos.lua)
 
 -- Layer toggle states (synced from beeos.lua)
 display.layerStates = {
@@ -115,7 +119,7 @@ end
 local function drawTabs(mon, w)
   local tabs = {
     { id = "species", label = "Species" },
-    { id = "apiaries", label = "Apiaries" },
+    { id = "machines", label = "Machines" },
     { id = "discovery", label = "Discov" },
     { id = "log", label = "Log" },
     { id = "config", label = "Config" },
@@ -169,6 +173,46 @@ local function drawToggles(mon, w, y)
   mon.setBackgroundColor(colors.black)
 end
 
+--- Check if a species appears in any value of an activeSpecies table.
+local function isActiveIn(activeTable, species)
+  if not activeTable then return false end
+  for _, sp in pairs(activeTable) do
+    if sp == species then return true end
+  end
+  return false
+end
+
+--- Check if a species is being bred in any running apiary.
+local function isBreeding(species)
+  for _, status in pairs(apiary.status) do
+    if status.state == "running" and status.species == species then
+      return true
+    end
+  end
+  return false
+end
+
+--- Get the activity indicator letter and color for a species.
+-- Priority: D > I > A > S > B
+local function getActivityIndicator(species)
+  if discovery.currentTarget == species then
+    return "D", colors.cyan
+  end
+  if isActiveIn(imprinter.activeSpecies, species) then
+    return "I", colors.yellow
+  end
+  if isActiveIn(analyzer.activeSpecies, species) then
+    return "A", colors.orange
+  end
+  if isActiveIn(sampler.activeSpecies, species) then
+    return "S", colors.purple
+  end
+  if isBreeding(species) then
+    return "B", colors.lime
+  end
+  return nil, nil
+end
+
 --- Draw the species catalog tab.
 local function drawSpecies(mon, w, h, startY)
   local species = tracker.sortedSpecies()
@@ -184,8 +228,8 @@ local function drawSpecies(mon, w, h, startY)
   drawLine(mon, y, w, "-")
   y = y + 1
 
-  -- Species rows (reserve 3 lines for footer separator, stats, legend)
-  local maxRows = math.max(1, h - y - 3)
+  -- Species rows (reserve 4 lines for footer separator, stats, color key, activity key)
+  local maxRows = math.max(1, h - y - 4)
   display.speciesPageSize = maxRows
   display.speciesTotal = #species
 
@@ -208,10 +252,15 @@ local function drawSpecies(mon, w, h, startY)
     if sp and y <= h then
       -- Status indicator
       drawText(mon, 1, y, "*", sp.color, colors.black)
+      -- Activity indicator
+      local actLetter, actColor = getActivityIndicator(sp.name)
+      if actLetter then
+        drawText(mon, 2, y, actLetter, actColor, colors.black)
+      end
       -- Name (truncated)
       local name = sp.name
-      if #name > 17 then name = name:sub(1, 16) .. "~" end
-      drawText(mon, 3, y, name, colors.white)
+      if #name > 15 then name = name:sub(1, 14) .. "~" end
+      drawText(mon, 4, y, name, colors.white)
       -- Counts
       drawText(mon, 20, y, string.format("%4d", sp.data.samples),
         sp.data.samples < 3 and colors.orange or colors.white)
@@ -251,40 +300,140 @@ local function drawSpecies(mon, w, h, startY)
     drawText(mon, x, y, "*", colors.gray)
     x = x + 1
     drawText(mon, x, y, "Undiscovered", colors.lightGray)
+    y = y + 1
+  end
+
+  -- Activity key
+  if y <= h then
+    local x2 = 1
+    drawText(mon, x2, y, "D", colors.cyan, colors.black)
+    drawText(mon, x2 + 1, y, "isco ", colors.lightGray)
+    x2 = x2 + 6
+    drawText(mon, x2, y, "I", colors.yellow)
+    drawText(mon, x2 + 1, y, "mpr ", colors.lightGray)
+    x2 = x2 + 5
+    drawText(mon, x2, y, "A", colors.orange)
+    drawText(mon, x2 + 1, y, "nalyz ", colors.lightGray)
+    x2 = x2 + 7
+    drawText(mon, x2, y, "S", colors.purple)
+    drawText(mon, x2 + 1, y, "ampl ", colors.lightGray)
+    x2 = x2 + 6
+    drawText(mon, x2, y, "B", colors.lime)
+    drawText(mon, x2 + 1, y, "reed", colors.lightGray)
   end
 end
 
---- Draw the apiaries tab.
-local function drawApiaries(mon, w, h, startY)
-  local statuses = apiary.getStatuses()
-  local y = startY
+--- Get machine status (species, state, color) by category.
+local function getMachineStatus(category, name)
+  if category == "apiary" then
+    local s = apiary.status[name]
+    if s then
+      local clr = s.state == "running" and colors.lime
+        or s.state == "restarting" and colors.yellow or colors.lightGray
+      return s.species or "-", s.state, clr
+    end
+    return "-", "idle", colors.lightGray
+  elseif category == "sampler" then
+    local sp = sampler.activeSpecies[name]
+    return sp or "-", sp and "sampling" or "idle",
+      sp and colors.lime or colors.lightGray
+  elseif category == "imprinter" then
+    local sp = imprinter.activeSpecies[name]
+    return sp or "-", sp and "imprinting" or "idle",
+      sp and colors.lime or colors.lightGray
+  elseif category == "analyzer" then
+    local sp = analyzer.activeSpecies[name]
+    return sp or "-", sp and "analyzing" or "idle",
+      sp and colors.lime or colors.lightGray
+  elseif category == "mutatron" then
+    if discovery.state == "mutating" and discovery.currentTarget then
+      return discovery.currentTarget, "mutating", colors.lime
+    end
+    return "-", "idle", colors.lightGray
+  end
+  return "-", "-", colors.lightGray
+end
 
-  drawText(mon, 1, y, "Apiary", colors.yellow, colors.black)
-  drawText(mon, 30, y, "Species", colors.yellow)
-  drawText(mon, 45, y, "Status", colors.yellow)
+--- Machine categories to display.
+local MACHINE_CATEGORIES = {
+  { key = "apiary",       label = "Apiaries" },
+  { key = "sampler",      label = "Samplers" },
+  { key = "imprinter",    label = "Imprinters" },
+  { key = "analyzer",     label = "Analyzers" },
+  { key = "mutatron",     label = "Mutatrons" },
+  { key = "dnaExtractor", label = "Extractors" },
+}
+
+--- Draw the machines tab.
+local function drawMachines(mon, w, h, startY)
+  local y = startY
+  local anyMachines = false
+
+  drawText(mon, 1, y, "Machine", colors.yellow, colors.black)
+  drawText(mon, 24, y, "Species", colors.yellow)
+  drawText(mon, 37, y, "Status", colors.yellow)
   y = y + 1
   drawLine(mon, y, w, "-")
   y = y + 1
 
-  for _, status in ipairs(statuses) do
-    if y > h then break end
-    -- Name (truncated)
-    local name = status.name
-    if #name > 27 then name = name:sub(1, 26) .. "~" end
-    drawText(mon, 1, y, name, colors.white, colors.black)
-    drawText(mon, 30, y, status.species or "None", colors.cyan)
+  for _, cat in ipairs(MACHINE_CATEGORIES) do
+    local machineTable = display.machines and display.machines[cat.key] or {}
+    local count = 0
+    for _ in pairs(machineTable) do count = count + 1 end
 
-    local stateColor = colors.white
-    if status.state == "running" then stateColor = colors.lime
-    elseif status.state == "idle" then stateColor = colors.red
-    elseif status.state == "restarting" then stateColor = colors.yellow
+    if count > 0 then
+      if y > h then break end
+      anyMachines = true
+
+      -- Section header
+      drawText(mon, 1, y, cat.label .. " (" .. count .. ")",
+        colors.yellow, colors.black)
+      y = y + 1
+
+      -- Sort machine names for stable display
+      local names = {}
+      for name in pairs(machineTable) do
+        names[#names + 1] = name
+      end
+      table.sort(names)
+
+      local mutatronShown = false
+      for _, name in ipairs(names) do
+        if y > h then break end
+
+        local sp, st, stColor
+        if cat.key == "mutatron" and not mutatronShown then
+          sp, st, stColor = getMachineStatus(cat.key, name)
+          mutatronShown = true
+        elseif cat.key == "mutatron" then
+          sp, st, stColor = "-", "idle", colors.lightGray
+        else
+          sp, st, stColor = getMachineStatus(cat.key, name)
+        end
+
+        -- Machine name (truncated)
+        local displayName = name
+        if #displayName > 20 then
+          displayName = displayName:sub(1, 19) .. "~"
+        end
+        drawText(mon, 3, y, displayName, colors.white, colors.black)
+
+        -- Species (truncated)
+        local displaySp = sp
+        if #displaySp > 12 then
+          displaySp = displaySp:sub(1, 11) .. "~"
+        end
+        drawText(mon, 24, y, displaySp, colors.cyan)
+
+        -- State
+        drawText(mon, 37, y, st, stColor)
+        y = y + 1
+      end
     end
-    drawText(mon, 45, y, status.state, stateColor)
-    y = y + 1
   end
 
-  if #statuses == 0 then
-    drawText(mon, 1, y, "No apiaries detected", colors.lightGray, colors.black)
+  if not anyMachines then
+    drawText(mon, 1, y, "No machines detected", colors.lightGray, colors.black)
   end
 end
 
@@ -548,8 +697,8 @@ function display.render()
     drawPicker(mon, w, h, startY)
   elseif display.activeTab == "species" then
     drawSpecies(mon, w, h, startY)
-  elseif display.activeTab == "apiaries" then
-    drawApiaries(mon, w, h, startY)
+  elseif display.activeTab == "machines" then
+    drawMachines(mon, w, h, startY)
   elseif display.activeTab == "discovery" then
     drawDiscovery(mon, w, h, startY)
   elseif display.activeTab == "log" then
@@ -645,7 +794,7 @@ function display.handleTouch(x, y)
 
   -- Tab selection (line 1)
   if y == 1 then
-    local tabs = { "species", "apiaries", "discovery", "log", "config" }
+    local tabs = { "species", "machines", "discovery", "log", "config" }
     local tabWidths = { 9, 10, 8, 5, 8 }
     local tx = 1
     for i, tab in ipairs(tabs) do

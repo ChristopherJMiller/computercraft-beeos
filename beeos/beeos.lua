@@ -291,6 +291,7 @@ end
 --- Display refresh loop
 local function displayLoop()
   display.init(config)
+  display.machines = machines
 
   while running do
     -- Sync layer states to display
