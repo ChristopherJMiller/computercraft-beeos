@@ -548,7 +548,10 @@ end
 -- @return boolean success
 function sampler.requestTemplate(species, machines, config)
   -- Find the gene sample for this species across sample storage chests
-  if not inventory.first(config.chests.sampleStorage) then return false end
+  if not inventory.first(config.chests.sampleStorage) then
+    tracker.addLog("Cannot craft template: no sample storage configured")
+    return false
+  end
 
   local sampleSlot = nil
   local sampleSource = nil
