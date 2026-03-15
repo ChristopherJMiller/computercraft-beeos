@@ -82,6 +82,14 @@ function imprinter.collectOutput(impName, imp, config)
           moved = true
         end
 
+      elseif itemName:find("gene_template") then
+        -- Return used template to template storage for reuse
+        if inventory.first(config.chests.templateOutput) then
+          inventory.moveTo(impName, slot, config.chests.templateOutput)
+          tracker.addLog("Recovered template from imprinter")
+          moved = true
+        end
+
       elseif itemName:find("bee_") then
         local info = bee.inspect(imp, slot)
         if info then

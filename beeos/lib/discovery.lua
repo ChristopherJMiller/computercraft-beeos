@@ -454,6 +454,13 @@ function discovery.checkImprinting(machines, config)
         return false
       end
 
+      -- Extract template1 before loading template2
+      local templateDest = config.chests.templateOutput
+      if inventory.first(templateDest) then
+        inventory.move(imprinterName, IMP_TEMPLATE,
+          inventory.first(templateDest))
+      end
+
       inventory.move(t2Source, t2Slot, imprinterName, IMP_TEMPLATE)
       inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
         imprinterName, IMP_LABWARE)
@@ -462,7 +469,13 @@ function discovery.checkImprinting(machines, config)
       return true
 
     elseif discovery.imprintStep == "drone" then
-      -- Drone imprinted! Now load the mutatron.
+      -- Drone imprinted! Extract template before moving on.
+      local templateDest = config.chests.templateOutput
+      if inventory.first(templateDest) then
+        inventory.move(imprinterName, IMP_TEMPLATE,
+          inventory.first(templateDest))
+      end
+
       tracker.addLog("Drone imprinted as " ..
         (discovery.currentMutation and discovery.currentMutation.parent2 or "?"))
 
