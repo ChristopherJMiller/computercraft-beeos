@@ -116,11 +116,19 @@ local machines = {}
 
 --- Rescan the network for machines.
 local function rescanNetwork()
-  machines = network.scan()
-  tracker.addLog("Network scan: " ..
-    network.count(machines, "apiary") .. " apiaries, " ..
-    network.count(machines, "sampler") .. " samplers, " ..
-    network.count(machines, "mutatron") .. " mutatrons")
+  local ok, result = pcall(network.scan)
+  if ok then
+    machines = result
+    tracker.addLog("Network scan: " ..
+      network.count(machines, "apiary") .. " apiaries, " ..
+      network.count(machines, "sampler") .. " samplers, " ..
+      network.count(machines, "mutatron") .. " mutatrons")
+    tracker.addLog("Machines: " .. network.detailedSummary(machines))
+  else
+    tracker.addLog("Network scan FAILED: " .. tostring(result))
+  end
+  -- Sync display immediately so the monitor reflects the new state
+  display.machines = machines
 end
 
 --- Layer 0: Passive Tracker loop
@@ -327,6 +335,7 @@ local function touchLoop()
           state.save("layers", config.layers)
         elseif action.action == "rescan" then
           rescanNetwork()
+          pcall(display.render)
         elseif action.action == "update" then
           display.updateStatus = "Updating..."
           tracker.addLog("Update started (monitor)")
@@ -428,6 +437,7 @@ local function terminalLoop()
 
     elseif cmd == "rescan" then
       rescanNetwork()
+      pcall(display.render)
       print("Network rescanned.")
 
     elseif cmd == "species" then

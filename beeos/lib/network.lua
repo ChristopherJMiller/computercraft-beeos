@@ -54,6 +54,25 @@ function network.scan()
   return result
 end
 
+--- Build a detailed summary string of all categorized machines.
+-- @param machines Table from network.scan()
+-- @return string Summary listing each category and its peripheral names
+function network.detailedSummary(machines)
+  local categories = { "apiary", "sampler", "imprinter", "mutatron", "dnaExtractor", "analyzer" }
+  local parts = {}
+  for _, cat in ipairs(categories) do
+    local names = {}
+    for name in pairs(machines[cat] or {}) do
+      names[#names + 1] = name
+    end
+    if #names > 0 then
+      table.sort(names)
+      parts[#parts + 1] = cat .. ": " .. table.concat(names, ", ")
+    end
+  end
+  return #parts > 0 and table.concat(parts, "; ") or "No machines found"
+end
+
 --- Count peripherals in a category.
 -- @param machines Table from network.scan()
 -- @param category Category string
