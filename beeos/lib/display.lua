@@ -530,7 +530,7 @@ local function drawDiscovery(mon, w, h, startY)
     end
 
     drawText(mon, 1, y, "Attempt: ", colors.lightGray, colors.black)
-    drawText(mon, 10, y, progress.attempts .. " / " .. discovery.maxAttempts, colors.white)
+    drawText(mon, 10, y, tostring(progress.attempts), colors.white)
     y = y + 1
   end
 

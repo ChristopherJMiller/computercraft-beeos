@@ -32,7 +32,6 @@ discovery.idleReason = nil
 discovery.currentTarget = nil
 discovery.currentMutation = nil
 discovery.attempts = 0
-discovery.maxAttempts = 10  -- max retries per target before moving on
 discovery.discovered = {}   -- { [species] = true } set of known species
 discovery.imprintStep = nil  -- "princess" or "drone" during imprinting
 discovery.stagedPrincess = nil  -- { source=, slot= } imprinted princess waiting
@@ -581,14 +580,8 @@ function discovery.checkMutatron(machines, config)
       tracker.addLog("Mutatron: genetic waste -> export")
     end
     -- Retry
-    if discovery.attempts < discovery.maxAttempts then
-      discovery.state = "preparing"
-      return true
-    else
-      goIdle("Max attempts: " .. (discovery.currentTarget or "?"))
-      discovery.currentTarget = nil
-      return false
-    end
+    discovery.state = "preparing"
+    return true
   end
 
   if meta.individual then
@@ -617,17 +610,9 @@ function discovery.checkMutatron(machines, config)
         -- Route based on bee type (queen/princess -> apiary, drone -> sampling)
         routeMutatronOutput(mutatronName, info, config)
 
-        -- Retry if we haven't exceeded max attempts
-        if discovery.attempts < discovery.maxAttempts then
-          discovery.state = "preparing"
-          return true
-        else
-          tracker.addLog("Max attempts reached for " ..
-            (discovery.currentTarget or "?") .. ", moving on")
-          goIdle("Max attempts: " .. (discovery.currentTarget or "?"))
-          discovery.currentTarget = nil
-          return false
-        end
+        -- Retry — keep going until we get the target
+        discovery.state = "preparing"
+        return true
       end
     end
   end
