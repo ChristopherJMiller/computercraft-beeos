@@ -2,16 +2,20 @@
 -- Reads and displays full genetic data from a bee (or gene sample/template)
 -- in a specified inventory slot.
 --
--- Usage: inspect <peripheral_name> [slot]
+-- Usage: inspect <peripheral_name> [slot] [filter]
 --   slot defaults to 1 if not specified
+--   filter optionally limits output to keys matching the string
 --   Example: inspect minecraft:chest_0 1
+--   Example: inspect minecraft:chest_0 1 nbt
 
 local args = { ... }
 
 if #args < 1 then
-  print("Usage: inspect <peripheral_name> [slot]")
+  print("Usage: inspect <peripheral_name> [slot] [filter]")
   print("  Reads bee genetics or gene sample data from an inventory slot.")
+  print("  filter: only show keys containing this string (case-insensitive)")
   print("  Example: inspect minecraft:chest_0 1")
+  print("  Example: inspect minecraft:chest_0 1 nbt")
   print()
   print("Available inventories:")
   for _, name in ipairs(peripheral.getNames()) do
@@ -25,6 +29,7 @@ end
 
 local periName = args[1]
 local slot = tonumber(args[2]) or 1
+local filter = args[3] and args[3]:lower() or nil
 
 local p = peripheral.wrap(periName)
 if not p then
@@ -48,6 +53,20 @@ if not meta then
   return
 end
 
+-- Check if a key path contains the filter string (case-insensitive).
+-- Also returns true for parent keys that contain matching children.
+local function matchesFilter(tbl, key)
+  if not filter then return true end
+  if tostring(key):lower():find(filter, 1, true) then return true end
+  -- If this is a table, check if any descendant key matches
+  if type(tbl) == "table" then
+    for k, v in pairs(tbl) do
+      if matchesFilter(v, k) then return true end
+    end
+  end
+  return false
+end
+
 -- Pretty-print a table with indentation
 local function dump(tbl, indent)
   indent = indent or 0
@@ -65,22 +84,24 @@ local function dump(tbl, indent)
 
   for _, k in ipairs(keys) do
     local v = tbl[k]
-    if type(v) == "table" then
-      term.setTextColor(colors.cyan)
-      print(pad .. tostring(k) .. ":")
-      term.setTextColor(colors.white)
-      dump(v, indent + 1)
-    else
-      term.setTextColor(colors.cyan)
-      write(pad .. tostring(k) .. ": ")
-      if type(v) == "boolean" then
-        term.setTextColor(v and colors.lime or colors.red)
-      elseif type(v) == "number" then
-        term.setTextColor(colors.orange)
-      else
+    if matchesFilter(v, k) then
+      if type(v) == "table" then
+        term.setTextColor(colors.cyan)
+        print(pad .. tostring(k) .. ":")
         term.setTextColor(colors.white)
+        dump(v, indent + 1)
+      else
+        term.setTextColor(colors.cyan)
+        write(pad .. tostring(k) .. ": ")
+        if type(v) == "boolean" then
+          term.setTextColor(v and colors.lime or colors.red)
+        elseif type(v) == "number" then
+          term.setTextColor(colors.orange)
+        else
+          term.setTextColor(colors.white)
+        end
+        print(tostring(v))
       end
-      print(tostring(v))
     end
   end
   term.setTextColor(colors.white)
