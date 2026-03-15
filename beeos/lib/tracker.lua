@@ -99,14 +99,26 @@ function tracker.scan(machines)
             end
           end
 
-        -- Check for gene samples
-        elseif name:find("gene_sample") then
+        -- Check for gene samples (filled, not blank)
+        elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
           -- Try to extract species from display name
-          local sampleSpecies = (meta.displayName or ""):match(":%s*(.+)$")
-          if sampleSpecies then
-            ensure(sampleSpecies)
-            catalog[sampleSpecies].samples =
-              catalog[sampleSpecies].samples + (meta.count or 1)
+          -- Gendustry format: "Bee Sample - Forest" or "Bee Sample - Fastest"
+          -- Only count species-chromosome samples (name matches a tracked species)
+          local sampleLabel = (meta.displayName or ""):match("-%s*(.+)$")
+            or (meta.displayName or ""):match(":%s*(.+)$")
+          if sampleLabel then
+            -- Check if this label matches a known species in the catalog
+            -- (trait samples like "Fastest", "Cave Dwelling" won't match)
+            if catalog[sampleLabel] then
+              catalog[sampleLabel].samples =
+                catalog[sampleLabel].samples + (meta.count or 1)
+            else
+              -- Might be a new species we haven't seen yet as a bee
+              -- Count it provisionally — tracker will reconcile
+              ensure(sampleLabel)
+              catalog[sampleLabel].samples =
+                catalog[sampleLabel].samples + (meta.count or 1)
+            end
           end
 
         -- Check for genetic templates

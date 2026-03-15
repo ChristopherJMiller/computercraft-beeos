@@ -67,9 +67,23 @@ function sampler.sendToSampler(fromPeri, fromSlot, machines, config)
 
   if not samplerName then return false end
 
-  -- Check sampler isn't busy (has items in output)
-  -- Slot layout needs Phase 0 verification:
-  -- Typically: input bee slot, labware slot, blank sample slot, output slot
+  -- Check sampler isn't busy (has output items to collect first)
+  local sampPeri = peripheral.wrap(samplerName)
+  if sampPeri then
+    local sampSize = sampPeri.size and sampPeri.size() or 0
+    for slot = 1, sampSize do
+      local meta = sampPeri.getItemMeta and sampPeri.getItemMeta(slot)
+      if meta then
+        local n = meta.name or ""
+        if n:find("gene_sample") and not n:find("gene_sample_blank") then
+          return false  -- Output sample waiting to be collected
+        end
+        if n:find("bee_") then
+          return false  -- Bee still in machine
+        end
+      end
+    end
+  end
 
   -- Ensure labware is available
   sampler.ensureLabware(samplerName, machines, config)
@@ -145,11 +159,24 @@ function sampler.collectOutput(machines, config)
           end
         elseif itemName:find("gene_sample") then
           -- Completed gene sample → sample storage
+          local displayName = meta.displayName or ""
           local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
           if moved > 0 then
-            sampler.state = "idle"
-            sampler.currentSpecies = nil
-            tracker.addLog("Sample collected -> storage")
+            -- Check if this is a species sample (matches a known species or
+            -- the species we're currently sampling)
+            local isSpeciesSample = false
+            if sampler.currentSpecies and displayName:find(sampler.currentSpecies, 1, true) then
+              isSpeciesSample = true
+            end
+            if isSpeciesSample then
+              tracker.addLog("Species sample: " .. sampler.currentSpecies .. " -> storage")
+              sampler.state = "idle"
+              sampler.currentSpecies = nil
+            else
+              -- Got a trait sample (speed, lifespan, etc.) — still useful
+              -- but keep sampling for the species chromosome
+              tracker.addLog("Trait sample: " .. displayName .. " -> storage")
+            end
           end
         elseif itemName:find("bee_drone") then
           -- Spent drone returned by sampler → drone buffer

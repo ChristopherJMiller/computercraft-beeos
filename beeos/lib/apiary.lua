@@ -79,10 +79,9 @@ function apiary.extractOutput(name, p, config)
       local itemName = meta.name or ""
 
       if itemName:find("bee_princess") or itemName:find("bee_queen") then
-        -- Princess → princessStorage if available, else droneBuffer
-        local princessDest = config.chests.princessStorage or config.chests.droneBuffer
-        if inventory.first(princessDest) then
-          inventory.moveTo(name, slot, princessDest)
+        -- Princess → princessStorage only (don't mix with drone buffer)
+        if inventory.first(config.chests.princessStorage) then
+          inventory.moveTo(name, slot, config.chests.princessStorage)
         end
 
       elseif itemName:find("bee_drone") then
