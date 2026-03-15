@@ -326,9 +326,18 @@ local function drawLog(mon, w, h, startY)
     local entry = tracker.log[i]
     if entry then
       local timeStr = string.format("D%d ", entry.day or 0)
+      local msg = entry.message or ""
+      local msgCol = #timeStr + 1
+      local maxMsgLen = w - msgCol + 1
+
       drawText(mon, 1, y, timeStr, colors.lightGray, colors.black)
-      drawText(mon, #timeStr + 1, y, entry.message or "", colors.white)
-      y = y + 1
+      -- Wrap long messages across multiple lines
+      while #msg > 0 and y <= h do
+        local line = msg:sub(1, maxMsgLen)
+        msg = msg:sub(maxMsgLen + 1)
+        drawText(mon, msgCol, y, line, colors.white, colors.black)
+        y = y + 1
+      end
     end
   end
 
