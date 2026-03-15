@@ -25,7 +25,7 @@ config.timing = {
 config.thresholds = {
   minSamplesPerSpecies = 3,   -- Minimum gene samples to keep per species
   minDronesPerSpecies = 2,    -- Minimum drones to keep per species
-  maxDronesPerSpecies = 8,    -- Surplus drones above this go to DNA Extractor
+  maxDronesPerSpecies = 64,   -- Surplus drones above this go to DNA Extractor
   minLabware = 8,             -- Request more labware from AE2 when below this
   minBlankTemplates = 4,      -- Request more blank templates when below this
 }

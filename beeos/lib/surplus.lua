@@ -93,6 +93,42 @@ function surplus.feedExtractor(machines, config)
       if moved > 0 then break end
     end
   end
+
+  -- Feed labware to extractors from supply chest
+  surplus.feedExtractorLabware(extractors, config)
+end
+
+--- Ensure DNA Extractors have labware available.
+-- Pulls from supply chest if needed.
+-- @param extractors Table of { name = wrappedPeri }
+-- @param config BeeOS config
+function surplus.feedExtractorLabware(extractors, config)
+  if not inventory.first(config.chests.supplyInput) then return end
+
+  for extractorName, extractorPeri in pairs(extractors) do
+    -- Check if extractor already has labware
+    local hasLabware = false
+    local size = extractorPeri.size and extractorPeri.size() or 0
+    for slot = 1, size do
+      local meta = extractorPeri.getItemMeta and extractorPeri.getItemMeta(slot)
+      if meta and (meta.name or ""):find("labware") then
+        hasLabware = true
+        break
+      end
+    end
+
+    if not hasLabware then
+      local labware = inventory.findAcross(config.chests.supplyInput, function(meta)
+        return (meta.name or ""):find("labware") ~= nil
+      end)
+      if labware[1] then
+        local moved = inventory.move(labware[1].source, labware[1].slot, extractorName, nil, 1)
+        if moved > 0 then
+          tracker.addLog("Labware -> extractor " .. extractorName)
+        end
+      end
+    end
+  end
 end
 
 return surplus

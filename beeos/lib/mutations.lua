@@ -40,9 +40,11 @@ function mutations.load(analyzerName)
     local rok, roots = pcall(analyzer.getSpeciesRoots)
     if rok and roots then
       -- Look for a bee root (usually "rootBees")
-      for root in pairs(roots) do
-        if root:find("[Bb]ee") then
-          rootUID = root
+      -- roots may be an array of strings or a set (keys=strings)
+      for k, v in pairs(roots) do
+        local name = type(k) == "string" and k or tostring(v)
+        if name:find("[Bb]ee") then
+          rootUID = name
           break
         end
       end

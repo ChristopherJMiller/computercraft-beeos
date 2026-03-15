@@ -134,12 +134,33 @@ function sampler.collectOutput(machines, config)
   for samplerName, samplerPeri in pairs(samplers) do
     local size = samplerPeri.size and samplerPeri.size() or 0
     for slot = 1, size do
-      if bee.isGeneSample(samplerPeri, slot) then
-        local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
-        if moved > 0 then
-          sampler.state = "idle"
-          sampler.currentSpecies = nil
-          tracker.addLog("Sample collected -> storage")
+      local meta = samplerPeri.getItemMeta and samplerPeri.getItemMeta(slot)
+      if meta then
+        local itemName = meta.name or ""
+        if itemName:find("gene_sample") then
+          -- Completed gene sample → sample storage
+          local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
+          if moved > 0 then
+            sampler.state = "idle"
+            sampler.currentSpecies = nil
+            tracker.addLog("Sample collected -> storage")
+          end
+        elseif itemName:find("bee_drone") then
+          -- Spent drone returned by sampler → drone buffer
+          if inventory.first(config.chests.droneBuffer) then
+            inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
+          end
+        elseif itemName:find("bee_") then
+          -- Any other bee output → drone buffer
+          if inventory.first(config.chests.droneBuffer) then
+            inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
+          end
+        elseif itemName:find("waste") then
+          -- Genetic waste → export
+          local exportChests = inventory.getExportChests(config)
+          if inventory.first(exportChests) then
+            inventory.moveTo(samplerName, slot, exportChests)
+          end
         end
       end
     end
