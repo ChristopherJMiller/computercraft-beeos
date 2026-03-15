@@ -101,8 +101,12 @@ local function trackerLoop()
   tracker.restore()
   while running do
     if config.layers.tracker then
+      tracker.addLog("Tracker: scanning inventories")
       local ok, err = pcall(tracker.scan, machines)
-      if not ok then
+      if ok then
+        local stats = tracker.stats()
+        tracker.addLog("Tracker: " .. stats.discovered .. " species cataloged")
+      else
         tracker.addLog("Tracker error: " .. tostring(err))
       end
     end
@@ -114,12 +118,15 @@ end
 local function apiaryLoop()
   while running do
     if config.layers.apiary then
+      local count = 0
       for name, p in pairs(machines.apiary or {}) do
+        count = count + 1
         local ok, err = pcall(apiary.check, name, p, config)
         if not ok then
           tracker.addLog("Apiary error (" .. name .. "): " .. tostring(err))
         end
       end
+      tracker.addLog("Apiary: checked " .. count .. " apiaries")
     end
     sleep(config.timing.apiaryInterval)
   end
@@ -129,6 +136,7 @@ end
 local function samplerLoop()
   while running do
     if config.layers.sampler then
+      tracker.addLog("Sampler: processing drones")
       local ok, err = pcall(sampler.processDrones, machines, config)
       if not ok then
         tracker.addLog("Sampler error: " .. tostring(err))
@@ -183,6 +191,8 @@ local function discoveryLoop()
           discovery.markDiscovered(species)
         end
 
+        tracker.addLog("Discovery: tick (" .. discovery.state ..
+          (discovery.currentTarget and ", target=" .. discovery.currentTarget or "") .. ")")
         local ok, err = pcall(discovery.tick, machines, config)
         if not ok then
           tracker.addLog("Discovery error: " .. tostring(err))
@@ -197,6 +207,7 @@ end
 local function imprinterLoop()
   while running do
     if config.layers.apiary then
+      tracker.addLog("Imprinter: checking traits")
       local ok, err = pcall(imprinter.tick, machines, config)
       if not ok then
         tracker.addLog("Imprinter error: " .. tostring(err))
@@ -210,6 +221,7 @@ end
 local function surplusLoop()
   while running do
     if config.layers.sampler or config.layers.apiary then
+      tracker.addLog("Surplus: processing")
       local ok, err = pcall(surplus.process, machines, config)
       if not ok then
         tracker.addLog("Surplus error: " .. tostring(err))

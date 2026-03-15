@@ -14,7 +14,7 @@ tracker.allSpecies = {}
 
 -- Activity log (recent events)
 tracker.log = {}
-local MAX_LOG = 50
+local MAX_LOG = 200
 
 --- Add an entry to the activity log.
 function tracker.addLog(message)
