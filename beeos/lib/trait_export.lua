@@ -8,14 +8,21 @@ local tracker = require("lib.tracker")
 local traitExport = {}
 
 --- Export trait samples from sample storage to the export chest.
--- Species samples (whose label matches a tracked species) are kept.
--- Trait samples (speed, lifespan, cave dwelling, etc.) are exported.
+-- Species samples are kept; trait samples (speed, lifespan, etc.) are exported.
+-- Uses NBT chromosome field as primary check (0 = species), falls back to
+-- matching displayName against catalog + mutation graph species list.
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 function traitExport.process(machines, config)
   local exportChests = inventory.getExportChests(config)
   if not inventory.first(config.chests.sampleStorage) then return end
   if not inventory.first(exportChests) then return end
+
+  -- Build species lookup from mutation graph for fallback matching
+  local allSpeciesSet = {}
+  for _, name in ipairs(tracker.allSpecies) do
+    allSpeciesSet[name] = true
+  end
 
   -- Find all gene samples in sample storage
   local samples = inventory.findAcross(config.chests.sampleStorage, function(meta)
@@ -24,14 +31,25 @@ function traitExport.process(machines, config)
   end)
 
   for _, match in ipairs(samples) do
-    local displayName = match.meta.displayName or ""
-    local label = displayName:match("-%s*(.+)$") or displayName:match(":%s*(.+)$")
+    local isSpeciesSample = false
 
-    -- If the label doesn't match a known species, it's a trait sample
-    if label and not tracker.catalog[label] then
+    -- Primary: check NBT chromosome field (0 = species)
+    local nbt = match.meta.nbt
+    if nbt and nbt.chromosome ~= nil then
+      isSpeciesSample = (nbt.chromosome == 0)
+    else
+      -- Fallback: check displayName against catalog + allSpecies
+      local displayName = match.meta.displayName or ""
+      local label = displayName:match("-%s*(.+)$") or displayName:match(":%s*(.+)$")
+      if label then
+        isSpeciesSample = tracker.catalog[label] ~= nil or allSpeciesSet[label] ~= nil
+      end
+    end
+
+    if not isSpeciesSample then
       local moved = inventory.moveTo(match.source, match.slot, exportChests)
       if moved > 0 then
-        tracker.addLog("Trait export: " .. displayName .. " -> export")
+        tracker.addLog("Trait export: " .. (match.meta.displayName or "?") .. " -> export")
       end
     end
   end
