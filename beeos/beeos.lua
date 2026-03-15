@@ -234,7 +234,7 @@ local function samplerLoop()
         end
       end
     end
-    sleep(config.timing.samplerInterval)
+    sampler.pollActive(machines, config, config.timing.samplerInterval)
   end
 end
 
@@ -287,7 +287,11 @@ local function discoveryLoop()
         end
       end
     end
-    sleep(config.timing.discoveryInterval)
+    if discovery.state ~= "idle" then
+      sleep(1)
+    else
+      sleep(config.timing.discoveryInterval)
+    end
   end
 end
 
@@ -300,7 +304,7 @@ local function imprinterLoop()
         tracker.addLog("Imprinter error: " .. tostring(err))
       end
     end
-    sleep(config.timing.apiaryInterval)
+    imprinter.pollActive(machines, config, config.timing.apiaryInterval)
   end
 end
 

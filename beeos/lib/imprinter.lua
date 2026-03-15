@@ -227,4 +227,44 @@ function imprinter.tick(machines, config)
   end
 end
 
+--- Poll active imprinters for output, collecting as soon as ready.
+-- Replaces idle sleep() at end of imprinter loop for faster output pickup.
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+-- @param duration Max seconds to poll before returning
+function imprinter.pollActive(machines, config, duration)
+  if not next(imprinter.activeSpecies) then
+    sleep(duration)
+    return
+  end
+
+  local imprinters = {}
+  if config.machines.imprinters then
+    for _, name in ipairs(config.machines.imprinters) do
+      imprinters[name] = peripheral.wrap(name)
+    end
+  else
+    imprinters = machines.imprinter or {}
+  end
+
+  local deadline = os.clock() + duration
+  while os.clock() < deadline do
+    sleep(0.5)
+
+    local allIdle = true
+    for impName, imp in pairs(imprinters) do
+      if imp and imprinter.activeSpecies[impName] then
+        local idle = imprinter.collectOutput(impName, imp, config)
+        if idle then
+          imprinter.activeSpecies[impName] = nil
+        else
+          allIdle = false
+        end
+      end
+    end
+
+    if allIdle then return end
+  end
+end
+
 return imprinter

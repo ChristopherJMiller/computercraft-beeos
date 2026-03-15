@@ -145,13 +145,87 @@ function sampler.ensureBlankSamples(samplerName, machines, config)
   end
 end
 
---- Check sampler output and collect completed samples.
+--- Collect output from a single sampler machine.
+-- Extracts gene samples, spent drones, waste, and unused blanks.
+-- @param samplerName Peripheral name
+-- @param samplerPeri Wrapped peripheral
+-- @param config BeeOS config
+function sampler.collectFromSampler(samplerName, samplerPeri, config)
+  local size = samplerPeri.size and samplerPeri.size() or 0
+  local hasItems = false
+  for slot = 1, size do
+    local meta = samplerPeri.getItemMeta and samplerPeri.getItemMeta(slot)
+    if meta then
+      local itemName = meta.name or ""
+      local moved = false
+      if itemName:find("gene_sample_blank") then
+        -- Unused blank sample → return to supply
+        if inventory.first(config.chests.supplyInput) then
+          inventory.moveTo(samplerName, slot, config.chests.supplyInput)
+          moved = true
+        end
+      elseif itemName:find("gene_sample") then
+        -- Completed gene sample → sample storage
+        local displayName = meta.displayName or ""
+        local movedCount = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
+        if movedCount > 0 then
+          moved = true
+          -- Check if this is a species sample
+          -- Format: "Bee Sample - Species: Forest"
+          local isSpeciesSample = displayName:find("Species:") ~= nil
+          local currentSp = sampler.activeSpecies[samplerName]
+          if isSpeciesSample then
+            tracker.addLog("Species sample: " .. currentSp .. " -> storage")
+            sampler.activeSpecies[samplerName] = nil
+            -- Set state to idle only if no other samplers are active
+            if not next(sampler.activeSpecies) then
+              sampler.state = "idle"
+            end
+          else
+            -- Got a trait sample (speed, lifespan, etc.) — still useful
+            -- but keep sampling for the species chromosome
+            tracker.addLog("Trait sample: " .. displayName .. " -> storage")
+          end
+        end
+      elseif itemName:find("bee_drone") then
+        -- Spent drone returned by sampler → drone buffer
+        if inventory.first(config.chests.droneBuffer) then
+          inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
+          moved = true
+        end
+      elseif itemName:find("bee_") then
+        -- Any other bee output → drone buffer
+        if inventory.first(config.chests.droneBuffer) then
+          inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
+          moved = true
+        end
+      elseif itemName:find("waste") then
+        -- Genetic waste → export
+        local exportChests = inventory.getExportChests(config)
+        if inventory.first(exportChests) then
+          inventory.moveTo(samplerName, slot, exportChests)
+          moved = true
+        end
+      end
+      if not moved then hasItems = true end
+    end
+  end
+
+  -- Clear status if sampler is empty (all items collected or consumed)
+  if not hasItems and sampler.activeSpecies[samplerName] then
+    sampler.activeSpecies[samplerName] = nil
+    if not next(sampler.activeSpecies) then
+      sampler.state = "idle"
+    end
+  end
+end
+
+--- Check all sampler machines and collect completed output.
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 function sampler.collectOutput(machines, config)
   if not inventory.first(config.chests.sampleStorage) then return end
 
-  -- Check all samplers
   local samplers = {}
   if config.machines.samplers then
     for _, name in ipairs(config.machines.samplers) do
@@ -162,73 +236,7 @@ function sampler.collectOutput(machines, config)
   end
 
   for samplerName, samplerPeri in pairs(samplers) do
-    local size = samplerPeri.size and samplerPeri.size() or 0
-    local hasItems = false
-    for slot = 1, size do
-      local meta = samplerPeri.getItemMeta and samplerPeri.getItemMeta(slot)
-      if meta then
-        local itemName = meta.name or ""
-        local moved = false
-        if itemName:find("gene_sample_blank") then
-          -- Unused blank sample → return to supply
-          if inventory.first(config.chests.supplyInput) then
-            inventory.moveTo(samplerName, slot, config.chests.supplyInput)
-            moved = true
-          end
-        elseif itemName:find("gene_sample") then
-          -- Completed gene sample → sample storage
-          local displayName = meta.displayName or ""
-          local movedCount = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
-          if movedCount > 0 then
-            moved = true
-            -- Check if this is a species sample
-            -- Format: "Bee Sample - Species: Forest"
-            local isSpeciesSample = displayName:find("Species:") ~= nil
-            local currentSp = sampler.activeSpecies[samplerName]
-            if isSpeciesSample then
-              tracker.addLog("Species sample: " .. currentSp .. " -> storage")
-              sampler.activeSpecies[samplerName] = nil
-              -- Set state to idle only if no other samplers are active
-              if not next(sampler.activeSpecies) then
-                sampler.state = "idle"
-              end
-            else
-              -- Got a trait sample (speed, lifespan, etc.) — still useful
-              -- but keep sampling for the species chromosome
-              tracker.addLog("Trait sample: " .. displayName .. " -> storage")
-            end
-          end
-        elseif itemName:find("bee_drone") then
-          -- Spent drone returned by sampler → drone buffer
-          if inventory.first(config.chests.droneBuffer) then
-            inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
-            moved = true
-          end
-        elseif itemName:find("bee_") then
-          -- Any other bee output → drone buffer
-          if inventory.first(config.chests.droneBuffer) then
-            inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
-            moved = true
-          end
-        elseif itemName:find("waste") then
-          -- Genetic waste → export
-          local exportChests = inventory.getExportChests(config)
-          if inventory.first(exportChests) then
-            inventory.moveTo(samplerName, slot, exportChests)
-            moved = true
-          end
-        end
-        if not moved then hasItems = true end
-      end
-    end
-
-    -- Clear status if sampler is empty (all items collected or consumed)
-    if not hasItems and sampler.activeSpecies[samplerName] then
-      sampler.activeSpecies[samplerName] = nil
-      if not next(sampler.activeSpecies) then
-        sampler.state = "idle"
-      end
-    end
+    sampler.collectFromSampler(samplerName, samplerPeri, config)
   end
 end
 
@@ -602,6 +610,46 @@ function sampler.lookupTemplateHash(nbtHash)
   if not nbtHash then return nil end
   local map = state.load("template_hashes", {})
   return map[nbtHash]
+end
+
+--- Poll active machines for output, collecting as soon as ready.
+-- Only checks machines we know have work in them (rapid 0.5s polling).
+-- Machines we DON'T track are checked defensively at the normal interval
+-- by the full collectOutput()/collectTransposerOutput() at the top of each tick.
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+-- @param duration Max seconds to poll before returning
+function sampler.pollActive(machines, config, duration)
+  local hasActive = next(sampler.activeSpecies) or next(sampler.activeTransposer)
+  if not hasActive then
+    sleep(duration)
+    return
+  end
+
+  local deadline = os.clock() + duration
+  while os.clock() < deadline do
+    sleep(0.5)
+
+    -- Only poll samplers we loaded work into
+    for samplerName in pairs(sampler.activeSpecies) do
+      local p = peripheral.wrap(samplerName)
+      if p then
+        pcall(sampler.collectFromSampler, samplerName, p, config)
+      end
+    end
+
+    -- Only poll transposers we loaded work into
+    for tName in pairs(sampler.activeTransposer) do
+      local p = peripheral.wrap(tName)
+      if p then
+        pcall(processTransposerOutput, tName, p, config)
+      end
+    end
+
+    if not next(sampler.activeSpecies) and not next(sampler.activeTransposer) then
+      return
+    end
+  end
 end
 
 return sampler
