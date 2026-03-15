@@ -433,7 +433,7 @@ local function terminalLoop()
         tracker.addLog("Layer " .. layer .. ": ON (terminal)")
       else
         print("Unknown layer: " .. layer)
-        print("Available: tracker, apiary, sampler, discovery, surplus")
+        print("Available: tracker, apiary, sampler, discovery, surplus, traitExport")
       end
 
     elseif cmd == "disable" and parts[2] then

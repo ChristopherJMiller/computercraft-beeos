@@ -205,6 +205,11 @@ function discovery.prepare(machines, config)
   for _, n in ipairs(inventory.normalize(config.chests.sampleStorage)) do
     templateChests[#templateChests + 1] = n
   end
+  if config.chests.templateOutput then
+    for _, n in ipairs(inventory.normalize(config.chests.templateOutput)) do
+      templateChests[#templateChests + 1] = n
+    end
+  end
 
   -- Find template for parent1
   local template1Slot, template1Source = nil, nil

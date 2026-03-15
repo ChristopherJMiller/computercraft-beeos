@@ -61,6 +61,11 @@ function tracker.scan(machines)
   local inventoryCount = 0
   local itemCount = 0
 
+  -- Two-pass scan: first create catalog entries from bees, then count samples/templates.
+  -- pairs() iteration order is non-deterministic, so samples/templates may be
+  -- encountered before the bees that create their catalog entries.
+  local deferred = {}
+
   for periName, p in pairs(allInventories) do
     inventoryCount = inventoryCount + 1
     local size = p.size and p.size() or 0
@@ -73,7 +78,7 @@ function tracker.scan(machines)
         itemCount = itemCount + 1
         local name = meta.name or ""
 
-        -- Check for bees
+        -- Pass 1: Process bees immediately (creates catalog entries)
         if meta.individual then
           local speciesName
           if meta.individual.genome then
@@ -99,35 +104,40 @@ function tracker.scan(machines)
             end
           end
 
-        -- Check for gene samples (filled, not blank)
+        -- Defer samples and templates to pass 2
         elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
-          -- Try to extract species from display name
-          -- Gendustry format: "Bee Sample - Forest" or "Bee Sample - Fastest"
-          -- Only count species-chromosome samples (name matches a tracked species)
-          local sampleLabel = (meta.displayName or ""):match("-%s*(.+)$")
-            or (meta.displayName or ""):match(":%s*(.+)$")
-          if sampleLabel then
-            -- Only count samples for species we've already seen as actual bees
-            -- (trait samples like "Fastest", "Cave Dwelling" are not species)
-            if catalog[sampleLabel] then
-              catalog[sampleLabel].samples =
-                catalog[sampleLabel].samples + (meta.count or 1)
-            end
-          end
-
-        -- Check for genetic templates
+          deferred[#deferred + 1] = meta
         elseif name:find("gene_template") and meta.damage and meta.damage > 0 then
-          -- Filled templates have damage > 0 (or NBT data)
-          -- Extracting species from template display name
-          local templateSpecies = (meta.displayName or ""):match(":%s*(.+)$")
-          if templateSpecies then
-            -- Only count templates for species we've already seen as actual bees
-            -- (trait templates like "Cave Dwelling" are not species)
-            if catalog[templateSpecies] then
-              catalog[templateSpecies].templates =
-                catalog[templateSpecies].templates + (meta.count or 1)
-            end
-          end
+          deferred[#deferred + 1] = meta
+        end
+      end
+    end
+  end
+
+  -- Pass 2: Count samples and templates (all catalog entries now exist)
+  for _, meta in ipairs(deferred) do
+    local name = meta.name or ""
+
+    if name:find("gene_sample") then
+      -- Gendustry format: "Bee Sample - Forest" or "Bee Sample - Fastest"
+      local sampleLabel = (meta.displayName or ""):match("-%s*(.+)$")
+        or (meta.displayName or ""):match(":%s*(.+)$")
+      if sampleLabel then
+        -- Only count samples for species we've seen as actual bees
+        -- (trait samples like "Fastest", "Cave Dwelling" are not species)
+        if catalog[sampleLabel] then
+          catalog[sampleLabel].samples =
+            catalog[sampleLabel].samples + (meta.count or 1)
+        end
+      end
+
+    elseif name:find("gene_template") then
+      -- Extracting species from template display name
+      local templateSpecies = (meta.displayName or ""):match(":%s*(.+)$")
+      if templateSpecies then
+        if catalog[templateSpecies] then
+          catalog[templateSpecies].templates =
+            catalog[templateSpecies].templates + (meta.count or 1)
         end
       end
     end

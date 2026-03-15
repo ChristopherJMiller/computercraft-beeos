@@ -33,7 +33,7 @@ function sampler.processDrones(machines, config)
         local droneCount = catalogEntry and catalogEntry.drones or 0
 
         if sampleCount < thresholds.minSamplesPerSpecies
-            and droneCount > thresholds.minDronesPerSpecies then
+            and (sampleCount == 0 or droneCount > thresholds.minDronesPerSpecies) then
           -- Need more samples and have spares — route to sampler
           sampler.sendToSampler(match.source, match.slot, machines, config)
         elseif droneCount > thresholds.maxDronesPerSpecies then

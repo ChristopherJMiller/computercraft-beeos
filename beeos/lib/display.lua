@@ -47,14 +47,6 @@ local CONFIG_ROLES = {
   { key = "chests.princessStorage",   label = "Princess Store",   multi = true },
   { key = "chests.traitTemplates",    label = "Trait Templates",  multi = true },
   { key = "chests.discoveryStaging",  label = "Disco Staging",    multi = true },
-  { key = "turtle.name",             label = "Turtle" },
-  { key = "machines.analyzer",       label = "Analyzer" },
-  { key = "machines.imprinters",     label = "Imprinters",       multi = true },
-  { key = "machines.mutatrons",      label = "Mutatrons",        multi = true },
-  { key = "machines.samplers",       label = "Samplers",         multi = true },
-  { key = "machines.dnaExtractors",  label = "Extractors",       multi = true },
-  { key = "mutations.preset",        label = "Mut. Preset" },
-  { key = "display.monitorSide",     label = "Monitor" },
 }
 
 --- Initialize the display.
@@ -916,6 +908,7 @@ function display.handleTouch(x, y)
       { 30, 41, "sampler" },
       { 42, 52, "discovery" },
       { 53, 63, "surplus" },
+      { 64, 75, "traitExport" },
     }
     for _, range in ipairs(ranges) do
       if x >= range[1] and x <= range[2] then
