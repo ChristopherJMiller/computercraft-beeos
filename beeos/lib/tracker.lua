@@ -108,7 +108,7 @@ function tracker.scan(machines)
         -- Defer samples and templates to pass 2
         elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
           deferred[#deferred + 1] = meta
-        elseif name:find("gene_template") and meta.damage and meta.damage > 0 then
+        elseif name:find("gene_template") then
           deferred[#deferred + 1] = meta
         end
       end
@@ -124,7 +124,8 @@ function tracker.scan(machines)
       local displayName = meta.displayName or ""
       -- Extract species name from "Species: <name>" pattern
       local speciesName = bee.normalizeSpecies(displayName:match("Species:%s*(.+)$"))
-      if speciesName and catalog[speciesName] then
+      if speciesName then
+        ensure(speciesName)
         catalog[speciesName].samples =
           catalog[speciesName].samples + (meta.count or 1)
       end
@@ -133,7 +134,8 @@ function tracker.scan(machines)
       -- Templates have no species in displayName — use learned nbtHash mapping
       local templateMap = state.load("template_hashes", {})
       local templateSpecies = templateMap[meta.nbtHash]
-      if templateSpecies and catalog[templateSpecies] then
+      if templateSpecies then
+        ensure(templateSpecies)
         catalog[templateSpecies].templates =
           catalog[templateSpecies].templates + (meta.count or 1)
       end
