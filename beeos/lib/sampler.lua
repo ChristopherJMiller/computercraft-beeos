@@ -552,7 +552,8 @@ function sampler.requestTemplate(species, machines, config)
   local sampleMatches = inventory.findAcross(config.chests.sampleStorage, function(meta)
     if not (meta.name or ""):find("gene_sample") then return false end
     -- Match "Bee Sample - Species: <name>"
-    local matchedSpecies = (meta.displayName or ""):match("Species:%s*(.+)$")
+    local matchedSpecies = bee.normalizeSpecies(
+      (meta.displayName or ""):match("Species:%s*(.+)$"))
     return bee.speciesMatch(matchedSpecies, species)
   end)
 
@@ -567,7 +568,8 @@ function sampler.requestTemplate(species, machines, config)
     inventory.findAcross(config.chests.sampleStorage, function(meta)
       if (meta.name or ""):find("gene_sample") and
          not (meta.name or ""):find("gene_sample_blank") then
-        local sp = (meta.displayName or ""):match("Species:%s*(.+)$")
+        local sp = bee.normalizeSpecies(
+          (meta.displayName or ""):match("Species:%s*(.+)$"))
         if sp then found[#found + 1] = sp end
       end
       return false
