@@ -324,13 +324,22 @@ local function walkAll(peri, speciesList)
   print()
 
   local learned = 0
-  for _, s in ipairs(unknown) do
+  for idx, s in ipairs(unknown) do
+    term.clear()
+    term.setCursorPos(1, 1)
+    term.setTextColor(colors.yellow)
+    print("=== Template Learner (" .. idx .. "/" .. #unknown .. ") ===")
+    term.setTextColor(colors.lightGray)
+    print("Tab/click to autocomplete. Enter to confirm. Empty to skip.")
+    term.setTextColor(colors.white)
+    print()
     if learnSlot(peri, s, speciesList) then
       learned = learned + 1
     end
   end
 
-  print()
+  term.clear()
+  term.setCursorPos(1, 1)
   term.setTextColor(colors.yellow)
   print("Done: " .. learned .. " learned, " .. (#unknown - learned) .. " skipped.")
   term.setTextColor(colors.white)
