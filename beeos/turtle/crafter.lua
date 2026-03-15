@@ -17,13 +17,21 @@ local function log(msg)
   print("[" .. time .. "] " .. msg)
 end
 
---- Open rednet on the wired modem.
--- Finds the modem side automatically.
+--- Open rednet on any available modem.
+-- Checks sides first, then peripheral names for wired modem blocks.
 -- @return boolean true if modem found and opened
 local function openModem()
+  -- Check direct sides (wireless modems, directly attached wired modems)
   for _, side in ipairs(rs.getSides()) do
     if peripheral.getType(side) == "modem" then
       rednet.open(side)
+      return true
+    end
+  end
+  -- Check peripheral names (wired modem full blocks placed adjacent)
+  for _, name in ipairs(peripheral.getNames()) do
+    if peripheral.getType(name) == "modem" then
+      rednet.open(name)
       return true
     end
   end
