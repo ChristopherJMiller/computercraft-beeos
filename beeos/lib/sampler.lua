@@ -345,7 +345,7 @@ local function tryTransposer(tName, tPeri, species, config)
   local sourceMeta = tPeri.getItemMeta and tPeri.getItemMeta(TRANSPOSER_SOURCE)
   if sourceMeta then
     local sourceSpecies = sampleSpecies(sourceMeta)
-    if sourceSpecies ~= species then
+    if not bee.speciesMatch(sourceSpecies, species) then
       -- Wrong species — return it to storage
       local returned = inventory.moveTo(tName, TRANSPOSER_SOURCE,
         config.chests.sampleStorage)
@@ -358,7 +358,7 @@ local function tryTransposer(tName, tPeri, species, config)
   if not sourceMeta then
     local sampleMatches = inventory.findAcross(config.chests.sampleStorage,
       function(meta)
-        return sampleSpecies(meta) == species
+        return bee.speciesMatch(sampleSpecies(meta), species)
       end)
     if not sampleMatches[1] then return nil end  -- No sample available anywhere
     local moved = inventory.move(sampleMatches[1].source,
@@ -553,7 +553,7 @@ function sampler.requestTemplate(species, machines, config)
     if not (meta.name or ""):find("gene_sample") then return false end
     -- Match "Bee Sample - Species: <name>"
     local matchedSpecies = (meta.displayName or ""):match("Species:%s*(.+)$")
-    return matchedSpecies == species
+    return bee.speciesMatch(matchedSpecies, species)
   end)
 
   if sampleMatches[1] then

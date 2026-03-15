@@ -14,6 +14,18 @@ function bee.normalizeSpecies(name)
   return name:match("%.bees%.species%.(.+)$") or name
 end
 
+--- Compare two species names, tolerant of Gendustry spacing mismatches.
+-- e.g. "Springwater" vs "Spring Water" both match.
+-- @param a First species name
+-- @param b Second species name
+-- @return boolean
+function bee.speciesMatch(a, b)
+  if not a or not b then return false end
+  if a == b then return true end
+  -- Strip spaces and compare case-insensitively
+  return a:gsub("%s", ""):lower() == b:gsub("%s", ""):lower()
+end
+
 --- Inspect a bee in an inventory slot.
 -- @param inventory Wrapped peripheral with getItemMeta
 -- @param slot Slot number to inspect
