@@ -3,7 +3,22 @@
 
 local updater = {}
 
-updater.BASE_URL = "https://raw.githubusercontent.com/ChristopherJMiller/computercraft-beeos/main/beeos/"
+updater.REPO = "ChristopherJMiller/computercraft-beeos"
+updater.BRANCH = "main"
+updater.BASE_URL = "https://raw.githubusercontent.com/" .. updater.REPO .. "/" .. updater.BRANCH .. "/beeos/"
+
+--- Resolve the latest commit SHA for the branch via GitHub API.
+-- Using commit-pinned URLs avoids CDN caching issues with branch-based URLs.
+-- @return string|nil sha, string|nil baseUrl
+function updater.resolveLatestURL()
+  local apiUrl = "https://api.github.com/repos/" .. updater.REPO .. "/commits/" .. updater.BRANCH
+  local response = http.get(apiUrl, { ["Accept"] = "application/vnd.github.v3.sha" })
+  if not response then return nil end
+  local sha = response.readAll()
+  response.close()
+  if not sha or #sha ~= 40 then return nil end
+  return "https://raw.githubusercontent.com/" .. updater.REPO .. "/" .. sha .. "/beeos/"
+end
 
 -- File manifest: all BeeOS files (path relative to beeos root)
 updater.FILES = {
@@ -80,15 +95,18 @@ function updater.download(url, path)
 end
 
 --- Update BeeOS by downloading all files except config.lua.
--- Fetches the latest file manifest from GitHub first so newly added
--- files are picked up without needing a reboot.
+-- Resolves the latest commit SHA to avoid CDN caching issues, then
+-- fetches the latest file manifest so newly added files are picked up.
 -- @param printFn Optional function(msg) for output (defaults to print)
 -- @return number successCount, number failCount
 function updater.update(printFn)
   printFn = printFn or print
 
+  -- Resolve commit-pinned URL to bypass CDN cache
+  local baseUrl = updater.resolveLatestURL() or updater.BASE_URL
+
   -- Fetch latest updater source to get current file manifest
-  local response = http.get(updater.BASE_URL .. "lib/updater.lua")
+  local response = http.get(baseUrl .. "lib/updater.lua")
   if not response then
     printFn("  Cannot reach GitHub")
     return 0, 1
@@ -112,7 +130,7 @@ function updater.update(printFn)
 
   for _, path in ipairs(files) do
     if path ~= "config.lua" and path ~= "lib/updater.lua" then
-      local url = updater.BASE_URL .. path
+      local url = baseUrl .. path
       printFn("  " .. path .. " ... ")
 
       local isNew = not fs.exists(path)

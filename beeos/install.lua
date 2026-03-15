@@ -4,7 +4,19 @@
 
 -- Bootstrap: we need lib/updater.lua but it doesn't exist yet.
 -- Download it first, then require it for the rest.
-local BASE_URL = "https://raw.githubusercontent.com/ChristopherJMiller/computercraft-beeos/main/beeos/"
+local REPO = "ChristopherJMiller/computercraft-beeos"
+local FALLBACK_URL = "https://raw.githubusercontent.com/" .. REPO .. "/main/beeos/"
+
+--- Resolve commit-pinned base URL to bypass GitHub CDN caching.
+local function resolveBaseURL()
+  local apiUrl = "https://api.github.com/repos/" .. REPO .. "/commits/main"
+  local response = http.get(apiUrl, { ["Accept"] = "application/vnd.github.v3.sha" })
+  if not response then return nil end
+  local sha = response.readAll()
+  response.close()
+  if not sha or #sha ~= 40 then return nil end
+  return "https://raw.githubusercontent.com/" .. REPO .. "/" .. sha .. "/beeos/"
+end
 
 local function bootstrapDownload(url, path)
   local response = http.get(url)
@@ -49,6 +61,9 @@ local function main()
     end
   end
 
+  -- Resolve commit-pinned URL to avoid CDN caching
+  local BASE_URL = resolveBaseURL() or FALLBACK_URL
+
   -- Bootstrap the updater module first
   term.setTextColor(colors.lightGray)
   write("  lib/updater.lua ")
@@ -76,7 +91,7 @@ local function main()
   for _, file in ipairs(fileList) do
     -- Skip updater (already downloaded) but download everything else including config.lua
     if file.path ~= "lib/updater.lua" then
-      local url = updater.BASE_URL .. file.path
+      local url = BASE_URL .. file.path
       term.setTextColor(colors.lightGray)
       write("  " .. file.path .. " ")
 
