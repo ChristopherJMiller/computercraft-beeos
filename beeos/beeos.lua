@@ -205,13 +205,15 @@ local function samplerLoop()
       -- Determine what discovery needs so we can prioritize it
       local discoveryNeeds = {}  -- { [species] = "template"|"sample" }
       if config.layers.discovery then
-        -- Check mutation parents for missing templates/samples
+        -- Check mutation parents for missing samples/templates
         if discovery.currentMutation then
           local mut = discovery.currentMutation
           for _, parent in ipairs({ mut.parent1, mut.parent2 }) do
             local data = tracker.catalog[parent]
             if data then
-              if data.templates == 0 and data.samples >= 1 then
+              if data.samples == 0 then
+                discoveryNeeds[parent] = "sample"
+              elseif data.templates == 0 then
                 discoveryNeeds[parent] = "template"
               end
             end

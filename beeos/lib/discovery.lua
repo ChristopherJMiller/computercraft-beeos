@@ -127,7 +127,8 @@ function discovery.pickTarget(config)
   return mutations.getNextTarget(
     discovery.discovered,
     skipSet,
-    config.discovery.prioritySpecies
+    config.discovery.prioritySpecies,
+    tracker.catalog
   )
 end
 
@@ -651,7 +652,8 @@ function discovery.getProgress()
     for _, name in ipairs((discovery.lastConfig.discovery or {}).skipSpecies or {}) do
       skipSet[name] = true
     end
-    candidates = mutations.getCandidateList(discovery.discovered, skipSet, 5)
+    candidates = mutations.getCandidateList(discovery.discovered, skipSet, 5,
+      tracker.catalog)
   end
 
   return {

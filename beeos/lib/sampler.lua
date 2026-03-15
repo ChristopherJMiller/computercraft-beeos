@@ -52,9 +52,13 @@ function sampler.processDrones(machines, config, prioritySpecies)
         local sampleCount = catalogEntry and catalogEntry.samples or 0
         local droneCount = catalogEntry and catalogEntry.drones or 0
         local match = entry.match
+        -- Discovery-needed samples can dip into the reserve
+        local needsSample = prioritySpecies[info.species] == "sample"
+        local minDrones = needsSample
+          and thresholds.minDronesPerSpecies
+          or (thresholds.minDronesPerSpecies + 1)
 
-        if sampleCount == 0
-            and droneCount > thresholds.minDronesPerSpecies then
+        if sampleCount == 0 and droneCount >= minDrones then
           sampler.sendToSampler(match.source, match.slot, machines, config)
         elseif sampleCount < thresholds.minSamplesPerSpecies
             and sampleCount >= 1 and droneCount > thresholds.minDronesPerSpecies

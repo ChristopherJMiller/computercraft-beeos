@@ -284,16 +284,37 @@ function mutations.findPath(targetSpecies, knownSpecies)
   return nil  -- Unreachable
 end
 
+--- Score how ready a mutation's parents are for breeding.
+-- Higher score = parents have more infrastructure (templates > samples > nothing).
+-- @param mut Mutation step with parent1 and parent2
+-- @param catalog Tracker catalog (optional)
+-- @return Readiness score (0-4)
+local function parentReadiness(mut, catalog)
+  if not catalog then return 0 end
+  local score = 0
+  for _, p in ipairs({ mut.parent1, mut.parent2 }) do
+    local data = catalog[p]
+    if data and data.templates >= 1 then
+      score = score + 2
+    elseif data and data.samples >= 1 then
+      score = score + 1
+    end
+  end
+  return score
+end
+
 --- Get the next best species to discover via auto-discovery.
 -- Picks the undiscovered species closest (fewest steps) to known species.
+-- Prefers targets whose parents have templates/samples ready.
 -- @param knownSpecies Set of known species { [name] = true }
 -- @param skipSpecies Set of species to skip { [name] = true }
 -- @param prioritySpecies Ordered list of priority species names
+-- @param catalog Tracker catalog for readiness scoring (optional)
 -- @return species name, mutation step table, or nil
-function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies)
+function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies, catalog)
   skipSpecies = skipSpecies or {}
 
-  -- Check priority species first
+  -- Check priority species first (user-requested, skip readiness check)
   if prioritySpecies then
     for _, species in ipairs(prioritySpecies) do
       if not knownSpecies[species] and not skipSpecies[species] then
@@ -310,7 +331,7 @@ function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies)
     end
   end
 
-  -- Find all species reachable in one step (prefer high chance mutations)
+  -- Find all species reachable in one step
   local candidates = {}
   for result, mutList in pairs(mutations.graph) do
     if not knownSpecies[result] and not skipSpecies[result] then
@@ -330,8 +351,11 @@ function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies)
     return nil  -- Nothing reachable
   end
 
-  -- Sort by mutation chance (highest first)
+  -- Sort by parent readiness first, then mutation chance within same tier
   table.sort(candidates, function(a, b)
+    local ra = parentReadiness(a.mutation, catalog)
+    local rb = parentReadiness(b.mutation, catalog)
+    if ra ~= rb then return ra > rb end
     return (a.mutation.chance or 0) > (b.mutation.chance or 0)
   end)
 
@@ -343,8 +367,9 @@ end
 -- @param knownSpecies Set of known species { [name] = true }
 -- @param skipSpecies Set of species to skip { [name] = true }
 -- @param limit Max candidates to return (default 5)
--- @return Array of { species=, mutation= } sorted by chance descending
-function mutations.getCandidateList(knownSpecies, skipSpecies, limit)
+-- @param catalog Tracker catalog for readiness scoring (optional)
+-- @return Array of { species=, mutation= } sorted by readiness then chance
+function mutations.getCandidateList(knownSpecies, skipSpecies, limit, catalog)
   skipSpecies = skipSpecies or {}
   limit = limit or 5
 
@@ -364,6 +389,9 @@ function mutations.getCandidateList(knownSpecies, skipSpecies, limit)
   end
 
   table.sort(candidates, function(a, b)
+    local ra = parentReadiness(a.mutation, catalog)
+    local rb = parentReadiness(b.mutation, catalog)
+    if ra ~= rb then return ra > rb end
     return (a.mutation.chance or 0) > (b.mutation.chance or 0)
   end)
 
