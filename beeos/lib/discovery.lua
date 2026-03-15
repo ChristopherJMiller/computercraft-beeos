@@ -35,6 +35,11 @@ discovery.imprintStep = nil  -- "princess" or "drone" during imprinting
 discovery.stagedPrincess = nil  -- { source=, slot= } imprinted princess waiting
 discovery.lastConfig = nil  -- cached config for getProgress()
 
+--- Get the staging chest config (discoveryStaging, fallback to supplyInput).
+local function getStagingChests(config)
+  return config.chests.discoveryStaging or config.chests.supplyInput
+end
+
 --- Set idle state with a reason.
 local function goIdle(reason)
   discovery.state = "idle"
@@ -313,17 +318,17 @@ function discovery.checkImprinting(machines, config)
   -- Handle imprinted bee output
   if itemName:find("bee_") then
     if discovery.imprintStep == "princess" then
-      -- Stage imprinted princess in supply chest
+      -- Stage imprinted princess in staging chest
       local staged = inventory.moveTo(imprinterName, IMP_OUTPUT,
-        config.chests.supplyInput)
+        getStagingChests(config))
       if staged == 0 then
         goIdle("No space to stage princess")
         return false
       end
 
       -- Remember where we staged her
-      -- Find her in the supply chest (she was just moved there)
-      local princessMatches = inventory.findAcross(config.chests.supplyInput, function(m)
+      -- Find her in the staging chest (she was just moved there)
+      local princessMatches = inventory.findAcross(getStagingChests(config), function(m)
         return (m.name or ""):find("bee_princess") ~= nil
       end)
       -- Pick the last match (most likely the one we just moved)
@@ -424,9 +429,9 @@ function discovery.startMutation(machines, config, imprinterName)
   end
 
   if not mutatronName then
-    -- Move drone out of imprinter to supply chest before going idle
+    -- Move drone out of imprinter to staging chest before going idle
     if imprinterName then
-      inventory.moveTo(imprinterName, IMP_OUTPUT, config.chests.supplyInput)
+      inventory.moveTo(imprinterName, IMP_OUTPUT, getStagingChests(config))
     end
     goIdle("No mutatron found")
     return false
@@ -438,7 +443,7 @@ function discovery.startMutation(machines, config, imprinterName)
   end)
   if not labwareMatches[1] then
     if imprinterName then
-      inventory.moveTo(imprinterName, IMP_OUTPUT, config.chests.supplyInput)
+      inventory.moveTo(imprinterName, IMP_OUTPUT, getStagingChests(config))
     end
     goIdle("No labware for mutatron")
     return false

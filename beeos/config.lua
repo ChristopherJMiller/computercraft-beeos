@@ -11,7 +11,8 @@ config.layers = {
   apiary = false,     -- Layer 1: Apiary management
   sampler = false,    -- Layer 2: Sample & template management
   discovery = false,  -- Layer 3: Auto-discovery via Mutatron
-  surplus = false,    -- Layer 4: Surplus drone management
+  surplus = false,        -- Layer 4: Surplus drone management
+  traitExport = false,    -- Layer 5: Trait sample export
 }
 
 -- === Timing (seconds) ===
@@ -42,6 +43,7 @@ config.chests = {
   princessStorage = nil,  -- "minecraft:chest_4" (princess overflow when apiaries full)
   export = nil,           -- "minecraft:chest_5" (AE2 import bus: combs, surplus, waste)
   traitTemplates = nil,   -- "minecraft:chest_6" (pre-stocked trait templates for imprinter)
+  discoveryStaging = nil, -- Staging chest for imprinted bees between discovery steps
 
   -- Legacy aliases (still work if export is nil)
   productOutput = nil,

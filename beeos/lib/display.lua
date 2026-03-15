@@ -28,6 +28,7 @@ display.layerStates = {
   sampler = false,
   discovery = false,
   surplus = false,
+  traitExport = false,
 }
 
 -- Config tab state
@@ -38,15 +39,22 @@ display.updateStatus = nil  -- nil or "updating" or "done: 16 OK, 0 failed"
 
 -- Config roles displayed on Config tab
 local CONFIG_ROLES = {
-  { key = "chests.droneBuffer",      label = "Drone Buffer",     multi = true },
-  { key = "chests.sampleStorage",    label = "Sample Storage",   multi = true },
-  { key = "chests.export",           label = "Export (AE2)",     multi = true },
-  { key = "chests.templateOutput",   label = "Template Output",  multi = true },
-  { key = "chests.supplyInput",      label = "Supply Input",     multi = true },
-  { key = "chests.princessStorage",  label = "Princess Store",   multi = true },
-  { key = "chests.traitTemplates",  label = "Trait Templates",  multi = true },
-  { key = "turtle.name",            label = "Turtle" },
-  { key = "machines.analyzer",      label = "Analyzer" },
+  { key = "chests.droneBuffer",       label = "Drone Buffer",     multi = true },
+  { key = "chests.sampleStorage",     label = "Sample Storage",   multi = true },
+  { key = "chests.export",            label = "Export (AE2)",     multi = true },
+  { key = "chests.templateOutput",    label = "Template Output",  multi = true },
+  { key = "chests.supplyInput",       label = "Supply Input",     multi = true },
+  { key = "chests.princessStorage",   label = "Princess Store",   multi = true },
+  { key = "chests.traitTemplates",    label = "Trait Templates",  multi = true },
+  { key = "chests.discoveryStaging",  label = "Disco Staging",    multi = true },
+  { key = "turtle.name",             label = "Turtle" },
+  { key = "machines.analyzer",       label = "Analyzer" },
+  { key = "machines.imprinters",     label = "Imprinters",       multi = true },
+  { key = "machines.mutatrons",      label = "Mutatrons",        multi = true },
+  { key = "machines.samplers",       label = "Samplers",         multi = true },
+  { key = "machines.dnaExtractors",  label = "Extractors",       multi = true },
+  { key = "mutations.preset",        label = "Mut. Preset" },
+  { key = "display.monitorSide",     label = "Monitor" },
 }
 
 --- Initialize the display.
@@ -153,6 +161,7 @@ local function drawToggles(mon, w, y)
     { id = "sampler", label = "Sample" },
     { id = "discovery", label = "Disco" },
     { id = "surplus", label = "Surpl" },
+    { id = "traitExport", label = "TrExp" },
   }
 
   local x = 1
@@ -618,10 +627,28 @@ local function scanPeripherals(roleKey)
         results[#results + 1] = name
       end
     elseif roleKey == "machines.analyzer" then
-      -- Forestry analyzer or anything with bee analysis methods
       if name:find("analyzer") or name:find("forestry") then
         results[#results + 1] = name
       end
+    elseif roleKey == "machines.imprinters" then
+      if name:find("imprinter") or name:find("gendustry") then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "machines.mutatrons" then
+      if name:find("mutatron") or name:find("gendustry") then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "machines.samplers" then
+      if name:find("sampler") or name:find("gendustry") then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "machines.dnaExtractors" then
+      if name:find("extractor") or name:find("gendustry") then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "mutations.preset" or roleKey == "display.monitorSide" then
+      -- These are text entries, not peripheral pickers — show all peripherals
+      results[#results + 1] = name
     else
       results[#results + 1] = name
     end

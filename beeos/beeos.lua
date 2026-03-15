@@ -8,6 +8,7 @@ local apiary = require("lib.apiary")
 local sampler = require("lib.sampler")
 local discovery = require("lib.discovery")
 local surplus = require("lib.surplus")
+local traitExport = require("lib.trait_export")
 local mutations = require("lib.mutations")
 local imprinter = require("lib.imprinter")
 local analyzer = require("lib.analyzer")
@@ -25,6 +26,7 @@ local CONFIGURABLE = {
   ["chests.supplyInput"]     = "Supply input chest (AE2 export)",
   ["chests.princessStorage"] = "Princess overflow chest",
   ["chests.traitTemplates"]  = "Trait template chest (pre-stocked for imprinter)",
+  ["chests.discoveryStaging"] = "Discovery staging chest (imprinted bees between steps)",
   ["chests.productOutput"]   = "Legacy product output (use export instead)",
   ["chests.surplusOutput"]   = "Legacy surplus output (use export instead)",
 }
@@ -38,6 +40,7 @@ local MULTI_CHEST_KEYS = {
   ["chests.supplyInput"] = true,
   ["chests.princessStorage"] = true,
   ["chests.traitTemplates"] = true,
+  ["chests.discoveryStaging"] = true,
   ["chests.productOutput"] = true,
   ["chests.surplusOutput"] = true,
   ["machines.analyzer"]      = "Forestry analyzer peripheral",
@@ -295,6 +298,19 @@ local function surplusLoop()
   end
 end
 
+--- Layer 5: Trait sample export loop
+local function traitExportLoop()
+  while running do
+    if config.layers.traitExport then
+      local ok, err = pcall(traitExport.process, machines, config)
+      if not ok then
+        tracker.addLog("Trait export error: " .. tostring(err))
+      end
+    end
+    sleep(config.timing.samplerInterval)
+  end
+end
+
 --- Display refresh loop
 local function displayLoop()
   display.init(config)
@@ -310,6 +326,7 @@ local function displayLoop()
       sampler = config.layers.sampler,
       discovery = config.layers.discovery,
       surplus = config.layers.surplus,
+      traitExport = config.layers.traitExport,
     }
 
     local ok, err = pcall(display.render)
@@ -390,7 +407,8 @@ local function terminalLoop()
         { key = "apiary",    num = 1, name = "Apiary Manager" },
         { key = "sampler",   num = 2, name = "Sample & Template Manager" },
         { key = "discovery", num = 3, name = "Auto-Discovery" },
-        { key = "surplus",   num = 4, name = "Surplus Management" },
+        { key = "surplus",      num = 4, name = "Surplus Management" },
+        { key = "traitExport", num = 5, name = "Trait Export" },
       }
       print("Layers:")
       for _, info in ipairs(layerInfo) do
@@ -472,6 +490,10 @@ local function terminalLoop()
           desc = "Routes excess drones to the DNA Extractor"
             .. " and manages surplus inventory above configured"
             .. " thresholds." },
+        { num = 5, key = "traitExport", name = "Trait Export",
+          desc = "Exports non-species genetic samples (trait"
+            .. " samples like speed, lifespan, cave dwelling)"
+            .. " from sample storage to the export chest." },
       }
       for _, l in ipairs(layerDescs) do
         local enabled = config.layers[l.key]
@@ -716,6 +738,7 @@ local function main()
     imprinterLoop,
     analyzerLoop,
     surplusLoop,
+    traitExportLoop,
     displayLoop,
     touchLoop,
     terminalLoop
