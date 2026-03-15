@@ -35,6 +35,7 @@ updater.FILES = {
   { path = "tools/scan.lua", desc = "Network scanner" },
   { path = "tools/inspect.lua", desc = "Bee inspector" },
   { path = "tools/slots.lua", desc = "Slot mapper" },
+  { path = "tools/mutations_debug.lua", desc = "Mutation debugger" },
 }
 
 -- Turtle-only files
