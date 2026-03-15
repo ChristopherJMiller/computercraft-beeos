@@ -39,7 +39,17 @@ function mutations.load(analyzerName)
   -- Query all bee mutations
   local ok, mutList = pcall(analyzer.getMutationsList, rootUID)
   if not ok then
-    return false, "getMutationsList('" .. rootUID .. "') failed: " .. tostring(mutList)
+    -- Log full error to file for debugging (monitor truncates it)
+    local f = fs.open("beeos_mutations_error.log", "w")
+    if f then
+      f.write("getMutationsList('" .. rootUID .. "') error:\n")
+      f.write(tostring(mutList) .. "\n")
+      f.close()
+    end
+    -- Truncate for display
+    local msg = tostring(mutList)
+    if #msg > 80 then msg = msg:sub(1, 80) .. "..." end
+    return false, "getMutationsList failed: " .. msg
   end
 
   -- Also get all species
