@@ -264,7 +264,13 @@ local function samplerLoop()
       for species in pairs(discoveryNeeds) do
         local data = tracker.catalog[species]
         if data and data.samples >= 1 and data.templates == 0 then
-          pcall(sampler.requestTemplate, species, machines, config)
+          tracker.addLog("Attempting template craft: " .. species
+            .. " (samples=" .. data.samples .. ")")
+          local tok, terr = pcall(sampler.requestTemplate, species, machines,
+            config)
+          if not tok then
+            tracker.addLog("Template craft error: " .. tostring(terr))
+          end
         end
       end
       for species, data in pairs(tracker.catalog) do
