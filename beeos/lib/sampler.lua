@@ -562,7 +562,23 @@ function sampler.requestTemplate(species, machines, config)
   end
 
   if not sampleSlot then
-    tracker.addLog("Cannot craft template: no sample for " .. species)
+    -- Debug: list all species samples in storage to diagnose mismatches
+    local found = {}
+    inventory.findAcross(config.chests.sampleStorage, function(meta)
+      if (meta.name or ""):find("gene_sample") and
+         not (meta.name or ""):find("gene_sample_blank") then
+        local sp = (meta.displayName or ""):match("Species:%s*(.+)$")
+        if sp then found[#found + 1] = sp end
+      end
+      return false
+    end)
+    if #found > 0 then
+      tracker.addLog("Cannot craft template: no sample for " .. species
+        .. " (have: " .. table.concat(found, ", ") .. ")")
+    else
+      tracker.addLog("Cannot craft template: no sample for " .. species
+        .. " (no species samples in storage)")
+    end
     return false
   end
 
