@@ -1,154 +1,152 @@
 -- BeeOS Mutation Debug Tool
--- Run this on the computer connected to a Forestry Analyzer to diagnose
--- getMutationsList errors.
+-- Outputs to monitor (if available) for more space.
+-- Tests each Plethora/Forestry method to diagnose getMutationsList errors.
 
-print("=== Mutation Debug Tool ===")
-print()
+-- Set up output: use monitor if available, fall back to terminal
+local out = term
+for _, name in ipairs(peripheral.getNames()) do
+  if peripheral.getType(name) == "monitor" then
+    local mon = peripheral.wrap(name)
+    mon.setTextScale(0.5)
+    mon.clear()
+    mon.setCursorPos(1, 1)
+    out = mon
+    print("Output on monitor: " .. name)
+    break
+  end
+end
 
--- Step 1: Find peripherals with mutation methods
-print("[1] Searching for peripherals with mutation methods...")
-local found = {}
+local line = 0
+local function log(text, color)
+  line = line + 1
+  out.setCursorPos(1, line)
+  if color and out.setTextColor then out.setTextColor(color) end
+  out.write(text or "")
+  if out == term then print() end  -- terminal needs newline
+end
+
+log("=== Mutation Debug ===", colors.yellow)
+log("")
+
+-- 1. Find analyzer peripheral
+log("1. Scanning peripherals...", colors.white)
+local analyzerName, analyzer
 for _, name in ipairs(peripheral.getNames()) do
   local methods = peripheral.getMethods(name)
   if methods then
     for _, m in ipairs(methods) do
-      if m:find("utation") or m:find("pecies") then
-        if not found[name] then
-          found[name] = {}
-        end
-        found[name][#found[name] + 1] = m
+      if m == "getMutationsList" then
+        analyzerName = name
+        analyzer = peripheral.wrap(name)
+        break
       end
     end
   end
+  if analyzer then break end
 end
 
-if not next(found) then
-  print("  ERROR: No peripherals found with mutation/species methods!")
-  print("  Make sure a Forestry Analyzer is connected via wired modem.")
+if not analyzer then
+  log("   NO analyzer with getMutationsList!", colors.red)
+  log("   Connect Forestry Analyzer via modem", colors.lightGray)
+  return
+end
+log("   Found: " .. analyzerName, colors.lime)
+log("")
+
+-- 2. Get species roots
+log("2. getSpeciesRoots()", colors.white)
+local ok, roots = pcall(analyzer.getSpeciesRoots)
+if not ok then
+  log("   FAIL: " .. tostring(roots), colors.red)
   return
 end
 
-for name, methods in pairs(found) do
-  print("  " .. name .. ":")
-  for _, m in ipairs(methods) do
-    print("    - " .. m)
+local rootList = {}
+if type(roots) == "table" then
+  for _, v in pairs(roots) do
+    rootList[#rootList + 1] = tostring(v)
   end
 end
-print()
+table.sort(rootList)
+log("   OK: " .. #rootList .. " roots", colors.lime)
+log("")
 
--- Step 2: Try each method on the first analyzer found
-local analyzerName = next(found)
-local analyzer = peripheral.wrap(analyzerName)
-print("[2] Testing methods on: " .. analyzerName)
-print()
-
--- Test getSpeciesRoots
-print("[2a] getSpeciesRoots()...")
-local ok, result = pcall(analyzer.getSpeciesRoots)
-if ok then
-  print("  OK! Species roots:")
-  if type(result) == "table" then
-    for k, v in pairs(result) do
-      print("    " .. tostring(k) .. " = " .. tostring(v))
+-- 3. Test getMutationsList on each root
+log("3. getMutationsList per root:", colors.white)
+for i, root in ipairs(rootList) do
+  local ok2, res = pcall(analyzer.getMutationsList, root)
+  if ok2 then
+    local count = 0
+    if type(res) == "table" then
+      for _ in pairs(res) do count = count + 1 end
     end
+    log("   3." .. i .. " " .. root .. ": OK (" .. count .. ")", colors.lime)
   else
-    print("  " .. tostring(result))
+    local err = tostring(res)
+    log("   3." .. i .. " " .. root .. ": FAIL", colors.red)
+    -- Print error across multiple lines (monitor has width limits)
+    local maxW = 50
+    while #err > 0 do
+      log("      " .. err:sub(1, maxW), colors.orange)
+      err = err:sub(maxW + 1)
+    end
   end
-else
-  print("  FAILED: " .. tostring(result))
 end
-print()
+log("")
 
--- Test getSpeciesList
-print("[2b] getSpeciesList('rootBees')...")
-ok, result = pcall(analyzer.getSpeciesList, "rootBees")
-if ok then
+-- 4. Test getSpeciesList on rootBees specifically
+log("4. getSpeciesList('rootBees')", colors.white)
+local ok3, species = pcall(analyzer.getSpeciesList, "rootBees")
+if ok3 then
   local count = 0
-  if type(result) == "table" then
-    for _ in pairs(result) do count = count + 1 end
+  if type(species) == "table" then
+    for _ in pairs(species) do count = count + 1 end
   end
-  print("  OK! Got " .. count .. " species")
-  -- Show first 3
-  if type(result) == "table" then
-    local shown = 0
-    for i, sp in ipairs(result) do
-      if shown >= 3 then
-        print("  ... and " .. (count - 3) .. " more")
-        break
-      end
+  log("   OK: " .. count .. " species", colors.lime)
+  -- Show first 5
+  if type(species) == "table" then
+    for j = 1, math.min(5, #species) do
+      local sp = species[j]
       if type(sp) == "table" then
-        print("  [" .. i .. "] id=" .. tostring(sp.id) ..
-          " name=" .. tostring(sp.displayName))
+        log("   [" .. j .. "] " .. tostring(sp.displayName or sp.id or "?"), colors.lightGray)
       else
-        print("  [" .. i .. "] " .. tostring(sp))
+        log("   [" .. j .. "] " .. tostring(sp), colors.lightGray)
       end
-      shown = shown + 1
+    end
+    if count > 5 then
+      log("   ... " .. (count - 5) .. " more", colors.lightGray)
     end
   end
 else
-  print("  FAILED: " .. tostring(result))
+  log("   FAIL: " .. tostring(species), colors.red)
 end
-print()
+log("")
 
--- Test getMutationsList - the one that's failing
-print("[2c] getMutationsList('rootBees')...")
-ok, result = pcall(analyzer.getMutationsList, "rootBees")
-if ok then
-  local count = 0
-  if type(result) == "table" then
-    for _ in pairs(result) do count = count + 1 end
-  end
-  print("  OK! Got " .. count .. " mutations")
-  -- Show first 3
-  if type(result) == "table" then
-    local shown = 0
-    for i, mut in ipairs(result) do
-      if shown >= 3 then
-        print("  ... and " .. (count - 3) .. " more")
-        break
-      end
-      print("  [" .. i .. "] " .. tostring(mut.species1) ..
-        " + " .. tostring(mut.species2) ..
-        " = chance:" .. tostring(mut.chance))
-      if type(mut.result) == "table" and type(mut.result.species) == "table" then
-        print("       -> " .. tostring(mut.result.species.displayName))
-      end
-      shown = shown + 1
-    end
-  end
-else
-  print("  FAILED: " .. tostring(result))
-  print()
-  print("  Full error:")
-  print("  " .. tostring(result))
-end
-print()
+-- 5. Also write full error to file for copy-paste
+log("5. Full errors written to:", colors.white)
+log("   beeos_mutations_error.log", colors.cyan)
 
--- Step 3: If getMutationsList failed, try alternate approaches
-if not ok then
-  print("[3] Trying alternate root UIDs...")
-  local roots = {}
-  local rok, rres = pcall(analyzer.getSpeciesRoots)
-  if rok and type(rres) == "table" then
-    for _, v in pairs(rres) do
-      roots[#roots + 1] = tostring(v)
-    end
-  end
+local f = fs.open("beeos_mutations_error.log", "w")
+if f then
+  f.write("=== Mutation Debug Log ===\n")
+  f.write("Analyzer: " .. analyzerName .. "\n")
+  f.write("Roots: " .. table.concat(rootList, ", ") .. "\n\n")
 
-  for _, root in ipairs(roots) do
-    print("  Trying getMutationsList('" .. root .. "')...")
-    local ok2, res2 = pcall(analyzer.getMutationsList, root)
-    if ok2 then
-      local c = 0
-      if type(res2) == "table" then
-        for _ in pairs(res2) do c = c + 1 end
+  for _, root in ipairs(rootList) do
+    local ok4, res = pcall(analyzer.getMutationsList, root)
+    if ok4 then
+      local count = 0
+      if type(res) == "table" then
+        for _ in pairs(res) do count = count + 1 end
       end
-      print("    OK! Got " .. c .. " mutations")
+      f.write(root .. ": OK (" .. count .. " mutations)\n")
     else
-      print("    FAILED: " .. tostring(res2):sub(1, 80))
+      f.write(root .. ": FAILED\n")
+      f.write("  " .. tostring(res) .. "\n\n")
     end
   end
+  f.close()
 end
 
-print()
-print("=== Debug complete ===")
+log("")
+log("=== Done ===", colors.yellow)
