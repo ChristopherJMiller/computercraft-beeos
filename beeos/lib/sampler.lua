@@ -593,7 +593,10 @@ function sampler.requestTemplate(species, machines, config)
   end
 
   -- Find a blank template across supply chests
-  if not inventory.first(config.chests.supplyInput) then return false end
+  if not inventory.first(config.chests.supplyInput) then
+    tracker.addLog("Cannot craft template: no supply chest configured")
+    return false
+  end
 
   local blankSlot = nil
   local blankSource = nil
@@ -623,7 +626,10 @@ function sampler.requestTemplate(species, machines, config)
 
   -- Don't push if turtle still has items (avoids duplicate crafts)
   local turtleItems = inventory.listItems(turtleName)
-  if #turtleItems > 0 then return false end
+  if #turtleItems > 0 then
+    tracker.addLog("Cannot craft template: turtle busy (has items)")
+    return false
+  end
 
   -- Push blank template and gene sample to turtle
   local movedBlank = inventory.move(blankSource, blankSlot, turtleName, nil, 1)
@@ -636,6 +642,8 @@ function sampler.requestTemplate(species, machines, config)
     return true
   end
 
+  tracker.addLog("Cannot craft template: failed to move items to turtle"
+    .. " (blank=" .. movedBlank .. ", sample=" .. movedSample .. ")")
   return false
 end
 
