@@ -83,10 +83,9 @@ function imprinter.collectOutput(impName, imp, config)
         end
 
       elseif itemName:find("gene_template") then
-        -- Return used template: prefer traitTemplates (apiary-ready), fallback to templateOutput
-        local tplDest = config.chests.traitTemplates or config.chests.templateOutput
-        if inventory.first(tplDest) then
-          inventory.moveTo(impName, slot, tplDest)
+        -- Return template to templateOutput (species + trait templates both safe here)
+        if inventory.first(config.chests.templateOutput) then
+          inventory.moveTo(impName, slot, config.chests.templateOutput)
           tracker.addLog("Recovered template from imprinter")
           moved = true
         end
