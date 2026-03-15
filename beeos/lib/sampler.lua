@@ -91,12 +91,14 @@ function sampler.sendToSampler(fromPeri, fromSlot, machines, config)
         sampler.ensureLabware(samplerName, machines, config)
         sampler.ensureBlankSamples(samplerName, machines, config)
 
+        -- Inspect before moving (slot will be empty after move)
+        local info = bee.inspect(peripheral.wrap(fromPeri), fromSlot)
+        local species = info and info.species or "Unknown"
+
         -- Send the drone
         local moved = inventory.move(fromPeri, fromSlot, samplerName)
         if moved > 0 then
-          local info = bee.inspect(peripheral.wrap(fromPeri), fromSlot)
           sampler.state = "sampling"
-          local species = info and info.species or "Unknown"
           sampler.activeSpecies[samplerName] = species
           tracker.addLog("Sampling: " .. species .. " (" .. samplerName .. ")")
           return true
