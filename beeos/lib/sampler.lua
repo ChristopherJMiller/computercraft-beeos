@@ -662,19 +662,15 @@ function sampler.findTurtle(config, machines)
   -- Check network scan results (already verified as wired peripherals)
   if machines and machines.turtle then
     local name = next(machines.turtle)
-    if name then return name end
-  end
-  -- Fallback: raw peripheral scan, skip "turtle_N" that lack
-  -- pushItems (local turtle vs wired-network turtle)
-  for _, name in ipairs(peripheral.getNames()) do
-    if name:find("turtle") then
-      local methods = peripheral.getMethods(name)
-      if methods then
-        for _, m in ipairs(methods) do
-          if m == "pushItems" then return name end
-        end
-      end
+    if name then
+      -- Cache so callers without machines can still find it
+      sampler.cachedTurtle = name
+      return name
     end
+  end
+  -- Fallback: use cached name from previous network scan
+  if sampler.cachedTurtle then
+    return sampler.cachedTurtle
   end
   return nil
 end
@@ -684,8 +680,9 @@ end
 -- The computer pulls them out to the template output chest.
 -- Learns nbtHash → species mapping for template identification.
 -- @param config BeeOS config
-function sampler.collectFromTurtle(config)
-  local turtleName = sampler.findTurtle(config)
+-- @param machines Optional table from network.scan()
+function sampler.collectFromTurtle(config, machines)
+  local turtleName = sampler.findTurtle(config, machines)
   if not turtleName then return end
 
   if not inventory.first(config.chests.templateOutput) then return end

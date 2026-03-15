@@ -189,7 +189,7 @@ local function machineCollectorLoop()
     if config.layers.sampler then
       pcall(sampler.collectTransposerOutput, machines, config)
       pcall(sampler.collectOutput, machines, config)
-      pcall(sampler.collectFromTurtle, config)
+      pcall(sampler.collectFromTurtle, config, machines)
     end
     sleep(0.5)
   end
@@ -256,12 +256,8 @@ local function samplerLoop()
         discovery.needs = {}
       end
 
-      -- Route drones to samplers (discovery-needed species first)
-      local ok, err = pcall(sampler.processDrones, machines, config,
-        discoveryNeeds)
-      if not ok then
-        tracker.addLog("Sampler error: " .. tostring(err))
-      end
+      -- Collect finished templates before starting new crafts
+      pcall(sampler.collectFromTurtle, config, machines)
 
       -- Template crafting: discovery needs first, then background
       for species in pairs(discoveryNeeds) do
@@ -280,6 +276,16 @@ local function samplerLoop()
         if data.samples >= 1 and data.templates == 0 then
           pcall(sampler.requestTemplate, species, machines, config)
         end
+      end
+
+      -- Collect again in case turtle finished quickly
+      pcall(sampler.collectFromTurtle, config, machines)
+
+      -- Route drones to samplers (discovery-needed species first)
+      local ok, err = pcall(sampler.processDrones, machines, config,
+        discoveryNeeds)
+      if not ok then
+        tracker.addLog("Sampler error: " .. tostring(err))
       end
 
       -- Batch transposer loading: fill ALL idle transposers
@@ -822,7 +828,7 @@ local function shutdown()
   pcall(sampler.extractTransposers, machines, config)
 
   -- Turtle: collect crafted templates
-  pcall(sampler.collectFromTurtle, config)
+  pcall(sampler.collectFromTurtle, config, machines)
 
   -- Signal crafting turtle(s) to stop via rednet
   pcall(function()
