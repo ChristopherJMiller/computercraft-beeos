@@ -11,6 +11,7 @@ local sampler = {}
 -- Current state
 sampler.state = "idle"  -- idle, sampling, waiting_output
 sampler.activeSpecies = {}  -- { [machineNamea] = speciesName }
+sampler.activeTransposer = {}  -- { [machineName] = speciesName }
 sampler.pendingTemplate = nil  -- species name of template being crafted
 
 --- Process drones in the buffer: route to sampler or surplus.
@@ -34,9 +35,14 @@ function sampler.processDrones(machines, config)
         local sampleCount = catalogEntry and catalogEntry.samples or 0
         local droneCount = catalogEntry and catalogEntry.drones or 0
 
-        if sampleCount < thresholds.minSamplesPerSpecies
-            and (sampleCount == 0 or droneCount > thresholds.minDronesPerSpecies) then
-          -- Need more samples and have spares — route to sampler
+        if sampleCount == 0
+            and droneCount > thresholds.minDronesPerSpecies then
+          -- No samples yet — must use sampler to get first sample from bee
+          sampler.sendToSampler(match.source, match.slot, machines, config)
+        elseif sampleCount < thresholds.minSamplesPerSpecies
+            and sampleCount >= 1 and droneCount > thresholds.minDronesPerSpecies
+            and not sampler.hasTransposer(machines, config) then
+          -- Need more samples, have no transposer — fall back to sampler
           sampler.sendToSampler(match.source, match.slot, machines, config)
         elseif droneCount > thresholds.maxDronesPerSpecies then
           -- Too many drones — route to surplus/DNA extractor
@@ -226,6 +232,237 @@ function sampler.collectOutput(machines, config)
   end
 end
 
+-- Transposer slot constants (from Gendustry source: TileTransposer.scala)
+local TRANSPOSER_BLANK = 1    -- Slot 0 (1-indexed): blank gene sample input
+-- Labware goes to slot 1 (1-indexed) via ensureLabware()
+local TRANSPOSER_SOURCE = 3   -- Slot 2 (1-indexed): source sample (NOT consumed)
+local TRANSPOSER_OUTPUT = 4   -- Slot 3 (1-indexed): output copy
+
+--- Get all available transposers (config override or auto-detected).
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+-- @return Table of { [name] = wrappedPeripheral }
+function sampler.getTransposers(machines, config)
+  local transposers = {}
+  if config.machines.transposers then
+    for _, name in ipairs(config.machines.transposers) do
+      transposers[name] = peripheral.wrap(name)
+    end
+  else
+    transposers = machines.transposer or {}
+  end
+  return transposers
+end
+
+--- Check if any transposer is available on the network.
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+-- @return boolean
+function sampler.hasTransposer(machines, config)
+  local transposers = sampler.getTransposers(machines, config)
+  return next(transposers) ~= nil
+end
+
+--- Identify the species of a gene sample from its displayName.
+-- @param meta Item metadata table
+-- @return species name or nil
+local function sampleSpecies(meta)
+  if not meta then return nil end
+  local name = meta.name or ""
+  if not name:find("gene_sample") or name:find("gene_sample_blank") then
+    return nil
+  end
+  local species = (meta.displayName or ""):match("Species:%s*(.+)$")
+  return species and bee.normalizeSpecies(species) or nil
+end
+
+--- Try to start duplication on a single transposer.
+-- @return true if started, false to try next transposer, nil to abort
+local function tryTransposer(tName, tPeri, species, config)
+  -- Check if this transposer is already working on this species
+  if sampler.activeTransposer[tName] == species then
+    return true  -- Already duplicating
+  end
+
+  -- Check if transposer is idle (no output pending, no blank loaded)
+  local outMeta = tPeri.getItemMeta and tPeri.getItemMeta(TRANSPOSER_OUTPUT)
+  local blankMeta = tPeri.getItemMeta and tPeri.getItemMeta(TRANSPOSER_BLANK)
+  if outMeta or blankMeta then
+    return false  -- Busy
+  end
+
+  -- Check source slot: may have a previous species' sample
+  local sourceMeta = tPeri.getItemMeta and tPeri.getItemMeta(TRANSPOSER_SOURCE)
+  if sourceMeta then
+    local sourceSpecies = sampleSpecies(sourceMeta)
+    if sourceSpecies ~= species then
+      -- Wrong species — return it to storage
+      local returned = inventory.moveTo(tName, TRANSPOSER_SOURCE,
+        config.chests.sampleStorage)
+      if returned == 0 then return false end
+      sourceMeta = nil
+    end
+  end
+
+  -- Load source sample if needed
+  if not sourceMeta then
+    local sampleMatches = inventory.findAcross(config.chests.sampleStorage,
+      function(meta)
+        return sampleSpecies(meta) == species
+      end)
+    if not sampleMatches[1] then return nil end  -- No sample available anywhere
+    local moved = inventory.move(sampleMatches[1].source,
+      sampleMatches[1].slot, tName, TRANSPOSER_SOURCE, 1)
+    if moved == 0 then return false end
+  end
+
+  -- Load blank gene sample
+  local blankMatches = inventory.findAcross(config.chests.supplyInput,
+    function(meta)
+      return (meta.name or ""):find("gene_sample_blank") ~= nil
+    end)
+  if not blankMatches[1] then
+    tracker.addLog("Transposer: no blank samples available")
+    return nil  -- No blanks anywhere
+  end
+  inventory.move(blankMatches[1].source, blankMatches[1].slot,
+    tName, TRANSPOSER_BLANK, 1)
+
+  -- Load labware
+  sampler.ensureLabware(tName, nil, config)
+
+  sampler.activeTransposer[tName] = species
+  tracker.addLog("Duplicating sample: " .. species .. " (" .. tName .. ")")
+  return true
+end
+
+--- Start duplicating a species sample in a transposer.
+-- Finds an idle transposer, loads the source sample, blank, and labware.
+-- @param species Species name to duplicate
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+-- @return boolean success
+function sampler.duplicateSample(species, machines, config)
+  if not inventory.first(config.chests.sampleStorage) then return false end
+  if not inventory.first(config.chests.supplyInput) then return false end
+
+  local transposers = sampler.getTransposers(machines, config)
+
+  for tName, tPeri in pairs(transposers) do
+    if tPeri then
+      local result = tryTransposer(tName, tPeri, species, config)
+      if result == true then return true end
+      if result == nil then return false end  -- Abort (no samples/blanks)
+      -- result == false: try next transposer
+    end
+  end
+
+  return false
+end
+
+--- Process a single transposer's output and state.
+local function processTransposerOutput(tName, tPeri, config)
+  local species = sampler.activeTransposer[tName]
+
+  -- Check output slot
+  local outMeta = tPeri.getItemMeta and tPeri.getItemMeta(TRANSPOSER_OUTPUT)
+  if outMeta then
+    -- Move copy to sample storage
+    if inventory.first(config.chests.sampleStorage) then
+      local moved = inventory.moveTo(tName, TRANSPOSER_OUTPUT,
+        config.chests.sampleStorage)
+      if moved > 0 then
+        tracker.addLog("Duplicated sample: " .. (species or "?") .. " -> storage")
+      end
+    end
+  end
+
+  -- If we're tracking this transposer, check if species is now fully stocked
+  if not species then return end
+
+  local catalogEntry = tracker.catalog[species]
+  local sampleCount = catalogEntry and catalogEntry.samples or 0
+
+  if sampleCount >= (config.thresholds.minSamplesPerSpecies or 3) then
+    -- Fully stocked — return source sample to storage
+    local sourceMeta = tPeri.getItemMeta
+      and tPeri.getItemMeta(TRANSPOSER_SOURCE)
+    if sourceMeta then
+      inventory.moveTo(tName, TRANSPOSER_SOURCE, config.chests.sampleStorage)
+      tracker.addLog("Transposer done: " .. species .. " fully stocked")
+    end
+    sampler.activeTransposer[tName] = nil
+  else
+    -- Still need more — reload a blank if the machine is idle
+    local blankMeta = tPeri.getItemMeta
+      and tPeri.getItemMeta(TRANSPOSER_BLANK)
+    local outStillThere = tPeri.getItemMeta
+      and tPeri.getItemMeta(TRANSPOSER_OUTPUT)
+    if not blankMeta and not outStillThere then
+      -- Load another blank
+      local blankMatches = inventory.findAcross(config.chests.supplyInput,
+        function(meta)
+          return (meta.name or ""):find("gene_sample_blank") ~= nil
+        end)
+      if blankMatches[1] then
+        inventory.move(blankMatches[1].source, blankMatches[1].slot,
+          tName, TRANSPOSER_BLANK, 1)
+      end
+      -- Top up labware (20% consumption chance)
+      sampler.ensureLabware(tName, nil, config)
+    end
+  end
+end
+
+--- Collect output from transposers and manage their state.
+-- Picks up completed copies, reloads blanks for continued duplication,
+-- or returns the source sample when the species is fully stocked.
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+function sampler.collectTransposerOutput(machines, config)
+  local transposers = sampler.getTransposers(machines, config)
+
+  for tName, tPeri in pairs(transposers) do
+    if tPeri then
+      processTransposerOutput(tName, tPeri, config)
+    end
+  end
+end
+
+--- Extract all items from transposers (used during shutdown).
+-- Returns source samples and copies to sampleStorage, blanks to supplyInput.
+-- @param machines Table from network.scan()
+-- @param config BeeOS config
+function sampler.extractTransposers(machines, config)
+  local transposers = sampler.getTransposers(machines, config)
+
+  for tName, tPeri in pairs(transposers) do
+    if tPeri then
+      local size = tPeri.size and tPeri.size() or 0
+      for slot = 1, size do
+        local meta = tPeri.getItemMeta and tPeri.getItemMeta(slot)
+        if meta then
+          local itemName = meta.name or ""
+          if itemName:find("gene_sample_blank") then
+            if inventory.first(config.chests.supplyInput) then
+              inventory.moveTo(tName, slot, config.chests.supplyInput)
+            end
+          elseif itemName:find("gene_sample") then
+            if inventory.first(config.chests.sampleStorage) then
+              inventory.moveTo(tName, slot, config.chests.sampleStorage)
+            end
+          elseif itemName:find("labware") then
+            if inventory.first(config.chests.supplyInput) then
+              inventory.moveTo(tName, slot, config.chests.supplyInput)
+            end
+          end
+        end
+      end
+      sampler.activeTransposer[tName] = nil
+    end
+  end
+end
+
 --- Request a template to be crafted via the crafting turtle.
 -- Sends a rednet message or places items for the turtle to craft.
 -- @param species Species name for the template
@@ -242,8 +479,8 @@ function sampler.requestTemplate(species, machines, config)
   local sampleMatches = inventory.findAcross(config.chests.sampleStorage, function(meta)
     if not (meta.name or ""):find("gene_sample") then return false end
     -- Match "Bee Sample - Species: <name>"
-    local sampleSpecies = (meta.displayName or ""):match("Species:%s*(.+)$")
-    return sampleSpecies == species
+    local matchedSpecies = (meta.displayName or ""):match("Species:%s*(.+)$")
+    return matchedSpecies == species
   end)
 
   if sampleMatches[1] then

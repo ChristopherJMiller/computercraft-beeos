@@ -43,6 +43,7 @@ local MULTI_CHEST_KEYS = {
   ["chests.discoveryStaging"] = true,
   ["chests.productOutput"] = true,
   ["chests.surplusOutput"] = true,
+  ["machines.transposers"]   = "Genetic transposer peripherals",
   ["machines.analyzer"]      = "Forestry analyzer peripheral",
   ["mutations.preset"]       = "Mutation data preset (e.g., meatballcraft)",
   ["turtle.name"]            = "Crafting turtle peripheral",
@@ -125,6 +126,7 @@ local function rescanNetwork()
     tracker.addLog("Network scan: " ..
       network.count(machines, "apiary") .. " apiaries, " ..
       network.count(machines, "sampler") .. " samplers, " ..
+      network.count(machines, "transposer") .. " transposers, " ..
       network.count(machines, "mutatron") .. " mutatrons")
     tracker.addLog("Machines: " .. network.detailedSummary(machines))
   else
@@ -197,6 +199,32 @@ local function samplerLoop()
       ok, err = pcall(sampler.collectFromTurtle, config)
       if not ok then
         tracker.addLog("Turtle collection error: " .. tostring(err))
+      end
+
+      -- Collect transposer output (duplicated samples)
+      ok, err = pcall(sampler.collectTransposerOutput, machines, config)
+      if not ok then
+        tracker.addLog("Transposer collection error: " .. tostring(err))
+      end
+
+      -- Duplicate samples via transposer for species below threshold
+      if sampler.hasTransposer(machines, config) then
+        local bestSpecies, bestCount = nil, math.huge
+        for species, data in pairs(tracker.catalog) do
+          if data.samples >= 1
+              and data.samples < (config.thresholds.minSamplesPerSpecies or 3) then
+            if data.samples < bestCount then
+              bestSpecies = species
+              bestCount = data.samples
+            end
+          end
+        end
+        if bestSpecies then
+          ok, err = pcall(sampler.duplicateSample, bestSpecies, machines, config)
+          if not ok then
+            tracker.addLog("Transposer error: " .. tostring(err))
+          end
+        end
       end
 
       -- Check if any species need templates
@@ -487,9 +515,9 @@ local function terminalLoop()
             .. " and drones, collects products, restarts stalled"
             .. " breeding." },
         { num = 2, key = "sampler",   name = "Sample & Template Manager",
-          desc = "Routes drones to the Genetic Sampler, crafts"
-            .. " templates via turtle, manages surplus drones to"
-            .. " DNA Extractor." },
+          desc = "Routes drones to the Genetic Sampler, duplicates"
+            .. " samples via Transposer, crafts templates via"
+            .. " turtle." },
         { num = 3, key = "discovery", name = "Auto-Discovery",
           desc = "Loads the mutation graph, finds undiscovered"
             .. " species, and breeds them in the Mutatron"
@@ -706,6 +734,9 @@ local function shutdown()
 
   -- Mutatrons: collect mutation results
   pcall(discovery.checkMutatron, machines, config)
+
+  -- Transposers: extract samples, blanks, labware
+  pcall(sampler.extractTransposers, machines, config)
 
   -- Turtle: collect crafted templates
   pcall(sampler.collectFromTurtle, config)

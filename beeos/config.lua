@@ -30,6 +30,7 @@ config.thresholds = {
   maxDronesPerSpecies = 64,   -- Surplus drones above this go to DNA Extractor
   minLabware = 8,             -- Request more labware from AE2 when below this
   minBlankTemplates = 4,      -- Request more blank templates when below this
+  minBlankSamples = 8,        -- Request more blank gene samples when below this
 }
 
 -- === Named Chests ===
@@ -68,6 +69,7 @@ config.machines = {
   samplers = nil,       -- e.g. { "gendustry:sampler_0" }
   imprinters = nil,     -- e.g. { "gendustry:imprinter_0" }
   mutatrons = nil,      -- e.g. { "gendustry:mutatron_0" }
+  transposers = nil,    -- e.g. { "gendustry:transposer_0" }
   dnaExtractors = nil,  -- e.g. { "gendustry:extractor_0" }
   analyzer = nil,       -- e.g. "forestry:analyzer_0" (for mutation queries)
 }

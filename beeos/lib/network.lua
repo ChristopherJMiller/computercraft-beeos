@@ -9,6 +9,7 @@ local PATTERNS = {
   sampler = { "sampler" },
   imprinter = { "imprinter" },
   mutatron = { "mutatron" },
+  transposer = { "transposer" },
   dnaExtractor = { "extractor", "dna_extractor" },
   analyzer = { "analyzer" },
   chest = { "chest", "barrel", "crate", "shulker" },
@@ -58,7 +59,7 @@ end
 -- @param machines Table from network.scan()
 -- @return string Summary listing each category and its peripheral names
 function network.detailedSummary(machines)
-  local categories = { "apiary", "sampler", "imprinter", "mutatron", "dnaExtractor", "analyzer" }
+  local categories = { "apiary", "sampler", "imprinter", "mutatron", "transposer", "dnaExtractor", "analyzer" }
   local parts = {}
   for _, cat in ipairs(categories) do
     local names = {}
@@ -131,7 +132,7 @@ end
 --- Print a summary of discovered machines.
 -- @param machines Table from network.scan()
 function network.printSummary(machines)
-  local categories = { "apiary", "sampler", "imprinter", "mutatron", "dnaExtractor", "analyzer", "chest" }
+  local categories = { "apiary", "sampler", "imprinter", "mutatron", "transposer", "dnaExtractor", "analyzer", "chest" }
   for _, cat in ipairs(categories) do
     local count = network.count(machines, cat)
     if count > 0 then

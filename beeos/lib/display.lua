@@ -209,6 +209,9 @@ local function getActivityIndicator(species)
   if isActiveIn(sampler.activeSpecies, species) then
     return "S", colors.purple
   end
+  if isActiveIn(sampler.activeTransposer, species) then
+    return "T", colors.magenta
+  end
   if isBreeding(species) then
     return "B", colors.lime
   end
@@ -334,6 +337,9 @@ local function drawSpecies(mon, w, h, startY)
     drawText(mon, x2, y, "S", colors.purple)
     drawText(mon, x2 + 1, y, "ampl ", colors.lightGray)
     x2 = x2 + 6
+    drawText(mon, x2, y, "T", colors.magenta)
+    drawText(mon, x2 + 1, y, "rans ", colors.lightGray)
+    x2 = x2 + 6
     drawText(mon, x2, y, "B", colors.lime)
     drawText(mon, x2 + 1, y, "reed", colors.lightGray)
   end
@@ -361,6 +367,10 @@ local function getMachineStatus(category, name)
     local sp = analyzer.activeSpecies[name]
     return sp or "-", sp and "analyzing" or "idle",
       sp and colors.lime or colors.lightGray
+  elseif category == "transposer" then
+    local sp = sampler.activeTransposer[name]
+    return sp or "-", sp and "copying" or "idle",
+      sp and colors.lime or colors.lightGray
   elseif category == "mutatron" then
     if discovery.state == "mutating" and discovery.currentTarget then
       return discovery.currentTarget, "mutating", colors.lime
@@ -377,6 +387,7 @@ local MACHINE_CATEGORIES = {
   { key = "imprinter",    label = "Imprinters" },
   { key = "analyzer",     label = "Analyzers" },
   { key = "mutatron",     label = "Mutatrons" },
+  { key = "transposer",   label = "Transposers" },
   { key = "dnaExtractor", label = "Extractors" },
 }
 
@@ -632,6 +643,10 @@ local function scanPeripherals(roleKey)
       end
     elseif roleKey == "machines.samplers" then
       if name:find("sampler") or name:find("gendustry") then
+        results[#results + 1] = name
+      end
+    elseif roleKey == "machines.transposers" then
+      if name:find("transposer") or name:find("gendustry") then
         results[#results + 1] = name
       end
     elseif roleKey == "machines.dnaExtractors" then
