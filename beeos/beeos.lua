@@ -181,30 +181,29 @@ local function apiaryLoop()
   end
 end
 
---- Layer 2: Sample & Template Manager loop
+--- Sampler machine collector loop (rapid 0.5s polling)
+-- Dedicated coroutine that keeps sampler-layer machines clear.
+-- Runs independently of the decision loop so output is collected fast.
+local function machineCollectorLoop()
+  while running do
+    if config.layers.sampler then
+      pcall(sampler.collectTransposerOutput, machines, config)
+      pcall(sampler.collectOutput, machines, config)
+      pcall(sampler.collectFromTurtle, config)
+    end
+    sleep(0.5)
+  end
+end
+
+--- Layer 2: Sample & Template Manager loop (decision-only)
+-- Routes drones, starts duplication, requests templates.
+-- Machine collection is handled by machineCollectorLoop.
 local function samplerLoop()
   while running do
     if config.layers.sampler then
       local ok, err = pcall(sampler.processDrones, machines, config)
       if not ok then
         tracker.addLog("Sampler error: " .. tostring(err))
-      end
-
-      ok, err = pcall(sampler.collectOutput, machines, config)
-      if not ok then
-        tracker.addLog("Sample collection error: " .. tostring(err))
-      end
-
-      -- Collect crafted templates from turtle
-      ok, err = pcall(sampler.collectFromTurtle, config)
-      if not ok then
-        tracker.addLog("Turtle collection error: " .. tostring(err))
-      end
-
-      -- Collect transposer output (duplicated samples)
-      ok, err = pcall(sampler.collectTransposerOutput, machines, config)
-      if not ok then
-        tracker.addLog("Transposer collection error: " .. tostring(err))
       end
 
       -- Duplicate samples via transposer for species below threshold
@@ -234,7 +233,7 @@ local function samplerLoop()
         end
       end
     end
-    sampler.pollActive(machines, config, config.timing.samplerInterval)
+    sleep(config.timing.samplerInterval)
   end
 end
 
@@ -823,6 +822,7 @@ local function main()
   parallel.waitForAny(
     trackerLoop,
     apiaryLoop,
+    machineCollectorLoop,
     samplerLoop,
     discoveryLoop,
     imprinterLoop,
