@@ -27,16 +27,25 @@ local function stateSave(key, data)
   f.close()
 end
 
+--- Title-case a species name: "forest" -> "Forest", "rock salt" -> "Rock Salt"
+local function titleCase(s)
+  if not s or s == "" then return s end
+  return s:gsub("(%a)([%w]*)", function(first, rest)
+    return first:upper() .. rest:lower()
+  end)
+end
+
 --- Build sorted species list from persisted state for autocomplete.
 local function buildSpeciesList()
   local seen = {}
   local list = {}
-  for sp in pairs(stateLoad("discovered", {})) do
+  local function add(sp)
     if not seen[sp] then seen[sp] = true; list[#list + 1] = sp end
   end
-  for sp in pairs(stateLoad("catalog", {})) do
-    if not seen[sp] then seen[sp] = true; list[#list + 1] = sp end
-  end
+  for sp in pairs(stateLoad("discovered", {})) do add(sp) end
+  for sp in pairs(stateLoad("catalog", {})) do add(sp) end
+  -- Also pull species from already-learned template hashes
+  for _, sp in pairs(stateLoad("template_hashes", {})) do add(sp) end
   table.sort(list)
   return list
 end
@@ -252,6 +261,7 @@ local function learnSlot(peri, s, speciesList)
     return false
   end
 
+  species = titleCase(species)
   map[nbtHash] = species
   stateSave("template_hashes", map)
 
@@ -290,6 +300,14 @@ local function walkAll(peri, speciesList)
   end
 
   print("Found " .. #unknown .. " unknown, " .. known .. " known.")
+  if #speciesList == 0 then
+    printError("No known species for autocomplete.")
+    printError("Run BeeOS (or a scan) first to populate the catalog.")
+    return
+  end
+  term.setTextColor(colors.lightGray)
+  print("Tab/click to autocomplete. Input is title-cased automatically.")
+  term.setTextColor(colors.white)
   print()
 
   local learned = 0
@@ -315,7 +333,12 @@ if #args >= 1 then
     printError("Peripheral not found: " .. periName)
     return
   end
-  learnSlot(p, slot, buildSpeciesList())
+  local speciesList = buildSpeciesList()
+  if #speciesList == 0 then
+    printError("No known species for autocomplete. Run BeeOS first.")
+    return
+  end
+  learnSlot(p, slot, speciesList)
 else
   -- Interactive mode
   term.setTextColor(colors.yellow)
