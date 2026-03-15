@@ -15,18 +15,18 @@ sampler.currentSpecies = nil
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 function sampler.processDrones(machines, config)
-  local droneBuffer = config.chests.droneBuffer
-  if not droneBuffer then return end
+  if not inventory.first(config.chests.droneBuffer) then return end
 
-  local bufferPeri = peripheral.wrap(droneBuffer)
-  if not bufferPeri then return end
-
-  local bufferSize = bufferPeri.size and bufferPeri.size() or 0
   local thresholds = config.thresholds
 
-  for slot = 1, bufferSize do
-    if bee.isDrone(bufferPeri, slot) then
-      local info = bee.inspect(bufferPeri, slot)
+  local allDrones = inventory.findAcross(config.chests.droneBuffer, function(meta)
+    return (meta.name or ""):find("bee_drone") ~= nil
+  end)
+
+  for _, match in ipairs(allDrones) do
+    local bufPeri = peripheral.wrap(match.source)
+    if bufPeri and bee.isDrone(bufPeri, match.slot) then
+      local info = bee.inspect(bufPeri, match.slot)
       if info and info.species then
         local catalogEntry = tracker.catalog[info.species]
         local sampleCount = catalogEntry and catalogEntry.samples or 0
@@ -34,11 +34,12 @@ function sampler.processDrones(machines, config)
 
         if sampleCount < thresholds.minSamplesPerSpecies then
           -- Need more samples — route to sampler
-          sampler.sendToSampler(droneBuffer, slot, machines, config)
+          sampler.sendToSampler(match.source, match.slot, machines, config)
         elseif droneCount > thresholds.maxDronesPerSpecies then
           -- Too many drones — route to surplus/DNA extractor
-          if config.chests.surplusOutput then
-            inventory.move(droneBuffer, slot, config.chests.surplusOutput)
+          local exportChests = inventory.getExportChests(config)
+          if inventory.first(exportChests) then
+            inventory.moveTo(match.source, match.slot, exportChests)
             tracker.addLog("Surplus drone: " .. info.species .. " -> DNA")
           end
         end
@@ -90,36 +91,27 @@ end
 --- Ensure the sampler has labware available.
 -- Pulls from supply chest if needed.
 function sampler.ensureLabware(samplerName, machines, config)
-  local supplyChest = config.chests.supplyInput
-  if not supplyChest then return end
+  if not inventory.first(config.chests.supplyInput) then return end
 
-  local supplyPeri = peripheral.wrap(supplyChest)
-  if not supplyPeri then return end
+  local matches = inventory.findAcross(config.chests.supplyInput, function(meta)
+    return (meta.name or ""):find("labware") ~= nil
+  end)
 
-  local supplySize = supplyPeri.size and supplyPeri.size() or 0
-  for slot = 1, supplySize do
-    if bee.isLabware(supplyPeri, slot) then
-      inventory.move(supplyChest, slot, samplerName, nil, 1)
-      return
-    end
+  if matches[1] then
+    inventory.move(matches[1].source, matches[1].slot, samplerName, nil, 1)
   end
 end
 
 --- Ensure blank gene samples are in the sampler.
 function sampler.ensureBlankSamples(samplerName, machines, config)
-  local supplyChest = config.chests.supplyInput
-  if not supplyChest then return end
+  if not inventory.first(config.chests.supplyInput) then return end
 
-  local supplyPeri = peripheral.wrap(supplyChest)
-  if not supplyPeri then return end
+  local matches = inventory.findAcross(config.chests.supplyInput, function(meta)
+    return (meta.name or ""):find("gene_sample_blank") ~= nil
+  end)
 
-  local supplySize = supplyPeri.size and supplyPeri.size() or 0
-  for slot = 1, supplySize do
-    local meta = supplyPeri.getItemMeta and supplyPeri.getItemMeta(slot)
-    if meta and (meta.name or ""):find("gene_sample_blank") then
-      inventory.move(supplyChest, slot, samplerName, nil, 1)
-      return
-    end
+  if matches[1] then
+    inventory.move(matches[1].source, matches[1].slot, samplerName, nil, 1)
   end
 end
 
@@ -127,8 +119,7 @@ end
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 function sampler.collectOutput(machines, config)
-  local sampleStorage = config.chests.sampleStorage
-  if not sampleStorage then return end
+  if not inventory.first(config.chests.sampleStorage) then return end
 
   -- Check all samplers
   local samplers = {}
@@ -144,7 +135,7 @@ function sampler.collectOutput(machines, config)
     local size = samplerPeri.size and samplerPeri.size() or 0
     for slot = 1, size do
       if bee.isGeneSample(samplerPeri, slot) then
-        local moved = inventory.move(samplerName, slot, sampleStorage)
+        local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
         if moved > 0 then
           sampler.state = "idle"
           sampler.currentSpecies = nil
@@ -162,24 +153,20 @@ end
 -- @param config BeeOS config
 -- @return boolean success
 function sampler.requestTemplate(species, machines, config)
-  -- Find the gene sample for this species in sample storage
-  local sampleStorage = config.chests.sampleStorage
-  if not sampleStorage then return false end
-
-  local storagePeri = peripheral.wrap(sampleStorage)
-  if not storagePeri then return false end
+  -- Find the gene sample for this species across sample storage chests
+  if not inventory.first(config.chests.sampleStorage) then return false end
 
   local sampleSlot = nil
-  local storageSize = storagePeri.size and storagePeri.size() or 0
+  local sampleSource = nil
 
-  for slot = 1, storageSize do
-    if bee.isGeneSample(storagePeri, slot) then
-      local meta = storagePeri.getItemMeta(slot)
-      if meta and (meta.displayName or ""):find(species) then
-        sampleSlot = slot
-        break
-      end
-    end
+  local sampleMatches = inventory.findAcross(config.chests.sampleStorage, function(meta)
+    if not (meta.name or ""):find("gene_sample") then return false end
+    return (meta.displayName or ""):find(species) ~= nil
+  end)
+
+  if sampleMatches[1] then
+    sampleSlot = sampleMatches[1].slot
+    sampleSource = sampleMatches[1].source
   end
 
   if not sampleSlot then
@@ -187,20 +174,21 @@ function sampler.requestTemplate(species, machines, config)
     return false
   end
 
-  -- Find a blank template in supply chest
-  local supplyChest = config.chests.supplyInput
-  if not supplyChest then return false end
-
-  local supplyPeri = peripheral.wrap(supplyChest)
-  if not supplyPeri then return false end
+  -- Find a blank template across supply chests
+  if not inventory.first(config.chests.supplyInput) then return false end
 
   local blankSlot = nil
-  local supplySize = supplyPeri.size and supplyPeri.size() or 0
-  for slot = 1, supplySize do
-    if bee.isBlankTemplate(supplyPeri, slot) then
-      blankSlot = slot
-      break
-    end
+  local blankSource = nil
+
+  local blankMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
+    local n = meta.name or ""
+    return n:find("gene_template") ~= nil
+      and (meta.damage == 0 or meta.displayName == "Genetic Template")
+  end)
+
+  if blankMatches[1] then
+    blankSlot = blankMatches[1].slot
+    blankSource = blankMatches[1].source
   end
 
   if not blankSlot then
@@ -216,8 +204,8 @@ function sampler.requestTemplate(species, machines, config)
   end
 
   -- Push blank template and gene sample to turtle
-  local movedBlank = inventory.move(supplyChest, blankSlot, turtleName, nil, 1)
-  local movedSample = inventory.move(sampleStorage, sampleSlot, turtleName, nil, 1)
+  local movedBlank = inventory.move(blankSource, blankSlot, turtleName, nil, 1)
+  local movedSample = inventory.move(sampleSource, sampleSlot, turtleName, nil, 1)
 
   if movedBlank > 0 and movedSample > 0 then
     -- Turtle polls its inventory and crafts automatically
@@ -252,12 +240,11 @@ function sampler.collectFromTurtle(config)
   local turtleName = sampler.findTurtle(config)
   if not turtleName then return end
 
-  local outputChest = config.chests.templateOutput
-  if not outputChest then return end
+  if not inventory.first(config.chests.templateOutput) then return end
 
   local items = inventory.listItems(turtleName)
   for _, item in ipairs(items) do
-    local moved = inventory.move(turtleName, item.slot, outputChest)
+    local moved = inventory.moveTo(turtleName, item.slot, config.chests.templateOutput)
     if moved > 0 then
       tracker.addLog("Collected template from turtle")
     end

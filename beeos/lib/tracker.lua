@@ -74,19 +74,28 @@ function tracker.scan(machines)
         local name = meta.name or ""
 
         -- Check for bees
-        if meta.individual and meta.individual.genome then
-          local species = meta.individual.genome.active.species
-          if species and species.displayName then
-            ensure(species.displayName)
+        if meta.individual then
+          local speciesName
+          if meta.individual.genome then
+            -- Analyzed bee: read species from genome
+            local species = (meta.individual.genome.active or {}).species
+            speciesName = species and species.displayName
+          end
+          if not speciesName then
+            -- Unanalyzed bee: parse from displayName (e.g. "Forest Princess")
+            speciesName = (meta.displayName or ""):match("^(.+) %u%l+$")
+          end
+          if speciesName then
+            ensure(speciesName)
             if name:find("princess") then
-              catalog[species.displayName].princesses =
-                catalog[species.displayName].princesses + (meta.count or 1)
+              catalog[speciesName].princesses =
+                catalog[speciesName].princesses + (meta.count or 1)
             elseif name:find("queen") then
-              catalog[species.displayName].queens =
-                catalog[species.displayName].queens + 1
+              catalog[speciesName].queens =
+                catalog[speciesName].queens + 1
             else
-              catalog[species.displayName].drones =
-                catalog[species.displayName].drones + (meta.count or 1)
+              catalog[speciesName].drones =
+                catalog[speciesName].drones + (meta.count or 1)
             end
           end
 

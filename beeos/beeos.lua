@@ -10,6 +10,7 @@ local discovery = require("lib.discovery")
 local surplus = require("lib.surplus")
 local mutations = require("lib.mutations")
 local imprinter = require("lib.imprinter")
+local inventory = require("lib.inventory")
 local display = require("lib.display")
 local state = require("lib.state")
 local updater = require("lib.updater")
@@ -24,6 +25,18 @@ local CONFIGURABLE = {
   ["chests.princessStorage"] = "Princess overflow chest",
   ["chests.productOutput"]   = "Legacy product output (use export instead)",
   ["chests.surplusOutput"]   = "Legacy surplus output (use export instead)",
+}
+
+-- Config keys that support multi-chest arrays (use +/- syntax)
+local MULTI_CHEST_KEYS = {
+  ["chests.droneBuffer"] = true,
+  ["chests.sampleStorage"] = true,
+  ["chests.export"] = true,
+  ["chests.templateOutput"] = true,
+  ["chests.supplyInput"] = true,
+  ["chests.princessStorage"] = true,
+  ["chests.productOutput"] = true,
+  ["chests.surplusOutput"] = true,
   ["machines.analyzer"]      = "Forestry analyzer peripheral",
   ["turtle.name"]            = "Crafting turtle peripheral",
   ["display.monitorSide"]    = "Monitor peripheral name",
@@ -74,6 +87,16 @@ local function saveConfigOverride(path, value)
   return true
 end
 
+--- Format a config value for terminal display.
+local function formatConfigValue(path, val)
+  if val == nil then return "<not set>" end
+  if type(val) == "table" then
+    if #val == 0 then return "<not set>" end
+    return table.concat(val, ", ")
+  end
+  return tostring(val)
+end
+
 --- Get a config value by dot path.
 local function getConfigValue(path)
   local section, key = path:match("^(%w+)%.(%w+)$")
@@ -99,13 +122,20 @@ end
 --- Layer 0: Passive Tracker loop
 local function trackerLoop()
   tracker.restore()
+  local lastSpecies, lastItems, lastInvs = -1, -1, -1
   while running do
     if config.layers.tracker then
       local ok, invCount, itemCount = pcall(tracker.scan, machines)
       if ok then
         local stats = tracker.stats()
-        tracker.addLog("Tracker: " .. stats.discovered .. " species, " ..
-          (itemCount or 0) .. " items in " .. (invCount or 0) .. " inventories")
+        if stats.discovered ~= lastSpecies or itemCount ~= lastItems
+            or invCount ~= lastInvs then
+          tracker.addLog("Tracker: " .. stats.discovered .. " species, " ..
+            (itemCount or 0) .. " items in " .. (invCount or 0) .. " inventories")
+          lastSpecies = stats.discovered
+          lastItems = itemCount
+          lastInvs = invCount
+        end
       else
         tracker.addLog("Tracker error: " .. tostring(invCount))
       end
@@ -436,8 +466,9 @@ local function terminalLoop()
           table.sort(paths)
           for _, path in ipairs(paths) do
             local val = getConfigValue(path)
-            local display_val = val == nil and "<not set>" or tostring(val)
-            term.setTextColor(val and colors.lime or colors.lightGray)
+            local display_val = formatConfigValue(path, val)
+            local hasVal = val ~= nil and (type(val) ~= "table" or #val > 0)
+            term.setTextColor(hasVal and colors.lime or colors.lightGray)
             print(string.format("  %-38s %s", path, display_val))
           end
         end
@@ -458,15 +489,56 @@ local function terminalLoop()
         -- Set a value
         local path = parts[2]
         if CONFIGURABLE[path] then
-          local value = table.concat(parts, " ", 3)
-          -- Auto-detect numeric values
-          local numVal = tonumber(value)
-          if numVal then value = numVal end
-          saveConfigOverride(path, value)
-          term.setTextColor(colors.lime)
-          print("Set " .. path .. " = " .. tostring(value))
-          term.setTextColor(colors.white)
-          tracker.addLog("Config set: " .. path .. " = " .. tostring(value))
+          local rawValue = table.concat(parts, " ", 3)
+
+          -- Multi-chest keys support +/- prefix for add/remove
+          if MULTI_CHEST_KEYS[path] and rawValue:sub(1, 1) == "+" then
+            local name = rawValue:sub(2)
+            local current = inventory.normalize(getConfigValue(path))
+            -- Add if not already present
+            local already = false
+            for _, n in ipairs(current) do
+              if n == name then already = true; break end
+            end
+            if not already then
+              current[#current + 1] = name
+            end
+            local saveVal = #current == 1 and current[1] or current
+            saveConfigOverride(path, saveVal)
+            term.setTextColor(colors.lime)
+            print("Added " .. name .. " to " .. path)
+            term.setTextColor(colors.white)
+            tracker.addLog("Config added: " .. path .. " += " .. name)
+
+          elseif MULTI_CHEST_KEYS[path] and rawValue:sub(1, 1) == "-" then
+            local name = rawValue:sub(2)
+            local current = inventory.normalize(getConfigValue(path))
+            local newList = {}
+            for _, n in ipairs(current) do
+              if n ~= name then newList[#newList + 1] = n end
+            end
+            local saveVal
+            if #newList == 0 then saveVal = nil
+            elseif #newList == 1 then saveVal = newList[1]
+            else saveVal = newList
+            end
+            saveConfigOverride(path, saveVal)
+            term.setTextColor(colors.lime)
+            print("Removed " .. name .. " from " .. path)
+            term.setTextColor(colors.white)
+            tracker.addLog("Config removed: " .. path .. " -= " .. name)
+
+          else
+            local value = rawValue
+            -- Auto-detect numeric values
+            local numVal = tonumber(value)
+            if numVal then value = numVal end
+            saveConfigOverride(path, value)
+            term.setTextColor(colors.lime)
+            print("Set " .. path .. " = " .. tostring(value))
+            term.setTextColor(colors.white)
+            tracker.addLog("Config set: " .. path .. " = " .. tostring(value))
+          end
         else
           print("Unknown key: " .. path)
           print("Run 'config' to see available keys.")
@@ -479,8 +551,9 @@ local function terminalLoop()
         for path, desc in pairs(CONFIGURABLE) do
           if path:find(filter, 1, true) then
             local val = getConfigValue(path)
-            local display_val = val == nil and "<not set>" or tostring(val)
-            term.setTextColor(val and colors.lime or colors.lightGray)
+            local display_val = formatConfigValue(path, val)
+            local hasVal = val ~= nil and (type(val) ~= "table" or #val > 0)
+            term.setTextColor(hasVal and colors.lime or colors.lightGray)
             print(string.format("  %-38s %s", path, display_val))
             term.setTextColor(colors.lightGray)
             print("    " .. desc)

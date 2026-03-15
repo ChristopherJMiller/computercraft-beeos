@@ -19,15 +19,6 @@ discovery.attempts = 0
 discovery.maxAttempts = 10  -- max retries per target before moving on
 discovery.discovered = {}   -- { [species] = true } set of known species
 
---- Get the export chest name with backwards-compatible fallback.
--- @param config BeeOS config
--- @return Peripheral name or nil
-local function getExportChest(config)
-  return config.chests.export
-    or config.chests.productOutput
-    or config.chests.surplusOutput
-end
-
 --- Initialize discovery from tracker catalog and persisted state.
 function discovery.init()
   -- Load persisted discovered set
@@ -131,8 +122,7 @@ function discovery.startImprinting(machines, config)
   -- The actual imprinting process is multi-step and needs the imprinter to be free.
 
   -- Check if we have templates for both parents
-  local supplyChest = config.chests.supplyInput
-  if not supplyChest then
+  if not inventory.first(config.chests.supplyInput) then
     tracker.addLog("Discovery: no supply chest configured!")
     discovery.state = "idle"
     return false
@@ -150,48 +140,53 @@ function discovery.startImprinting(machines, config)
   -- For the MVP, we assume templates and rocky bees are in the supply chest.
   -- Push princess + template + labware to imprinter.
 
-  local supplyPeri = peripheral.wrap(supplyChest)
-  if not supplyPeri then return false end
-  local supplySize = supplyPeri.size and supplyPeri.size() or 0
-
-  -- Find rocky princess
-  local princessSlot = nil
-  for slot = 1, supplySize do
-    local meta = supplyPeri.getItemMeta and supplyPeri.getItemMeta(slot)
-    if meta and (meta.name or ""):find("bee_princess") then
-      local info = bee.inspect(supplyPeri, slot)
-      -- Rocky bees or any available princess
+  -- Find rocky princess across supply chests
+  local princessMatch = nil
+  local princessMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
+    return (meta.name or ""):find("bee_princess") ~= nil
+  end)
+  for _, match in ipairs(princessMatches) do
+    local p = peripheral.wrap(match.source)
+    if p then
+      local info = bee.inspect(p, match.slot)
       if info then
-        princessSlot = slot
+        princessMatch = match
         break
       end
     end
   end
 
-  -- Find rocky drone
-  local droneSlot = nil
-  for slot = 1, supplySize do
-    local meta = supplyPeri.getItemMeta and supplyPeri.getItemMeta(slot)
-    if meta and (meta.name or ""):find("bee_drone") then
-      droneSlot = slot
-      break
-    end
+  -- Find rocky drone across supply chests
+  local droneMatch = nil
+  local droneMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
+    return (meta.name or ""):find("bee_drone") ~= nil
+  end)
+  if droneMatches[1] then
+    droneMatch = droneMatches[1]
   end
 
-  if not princessSlot or not droneSlot then
+  if not princessMatch or not droneMatch then
     tracker.addLog("Discovery: need rocky princess + drone in supply chest")
     discovery.state = "idle"
     return false
   end
 
-  -- Find template for parent1 (for the princess)
-  local sampleStorage = config.chests.sampleStorage
-  local template1Slot = discovery.findTemplate(supplyChest, supplyPeri, supplySize, mut.parent1)
-  if not template1Slot and sampleStorage then
-    local storagePeri = peripheral.wrap(sampleStorage)
-    if storagePeri then
-      template1Slot = discovery.findTemplate(sampleStorage, storagePeri,
-        storagePeri.size and storagePeri.size() or 0, mut.parent1)
+  -- Find template for parent1 across supplyInput + sampleStorage
+  local templateChests = {}
+  for _, n in ipairs(inventory.normalize(config.chests.supplyInput)) do
+    templateChests[#templateChests + 1] = n
+  end
+  for _, n in ipairs(inventory.normalize(config.chests.sampleStorage)) do
+    templateChests[#templateChests + 1] = n
+  end
+
+  local template1Slot = nil
+  for _, chestName in ipairs(templateChests) do
+    local p = peripheral.wrap(chestName)
+    if p then
+      template1Slot = discovery.findTemplate(chestName, p,
+        p.size and p.size() or 0, mut.parent1)
+      if template1Slot then break end
     end
   end
 
@@ -279,7 +274,7 @@ function discovery.checkMutatron(machines, config)
   if not mutatronPeri then return false end
 
   local size = mutatronPeri.size and mutatronPeri.size() or 0
-  local exportChest = getExportChest(config)
+  local exportChests = inventory.getExportChests(config)
 
   -- Check output slots for results
   for slot = 1, size do
@@ -289,24 +284,22 @@ function discovery.checkMutatron(machines, config)
 
       -- Handle genetic waste from mutatron
       if itemName:find("waste") then
-        if exportChest then
-          inventory.move(mutatronName, slot, exportChest)
+        if inventory.first(exportChests) then
+          inventory.moveTo(mutatronName, slot, exportChests)
           tracker.addLog("Mutatron: genetic waste -> export")
         end
 
       elseif meta.individual then
         local info = bee.inspect(mutatronPeri, slot)
         if info then
-          local droneBuffer = config.chests.droneBuffer
-
           if info.species == discovery.currentTarget then
             -- Success! Found our target species
             tracker.addLog("SUCCESS: Bred " .. info.species .. "!")
             discovery.markDiscovered(info.species)
 
             -- Move to drone buffer for sampling
-            if droneBuffer then
-              inventory.move(mutatronName, slot, droneBuffer)
+            if inventory.first(config.chests.droneBuffer) then
+              inventory.moveTo(mutatronName, slot, config.chests.droneBuffer)
             end
 
             discovery.state = "idle"
@@ -323,8 +316,8 @@ function discovery.checkMutatron(machines, config)
             end
 
             -- Move to buffer for sampling
-            if droneBuffer then
-              inventory.move(mutatronName, slot, droneBuffer)
+            if inventory.first(config.chests.droneBuffer) then
+              inventory.moveTo(mutatronName, slot, config.chests.droneBuffer)
             end
 
             -- Retry if we haven't exceeded max attempts

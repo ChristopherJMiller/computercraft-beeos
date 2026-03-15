@@ -8,15 +8,6 @@ local tracker = require("lib.tracker")
 
 local imprinter = {}
 
---- Get the export chest name with backwards-compatible fallback.
--- @param config BeeOS config
--- @return Peripheral name or nil
-local function getExportChest(config)
-  return config.chests.export
-    or config.chests.productOutput
-    or config.chests.surplusOutput
-end
-
 --- Check if a bee needs imprinting based on config.traits.
 -- @param beeInfo Table returned by bee.inspect()
 -- @param config BeeOS config
@@ -93,9 +84,9 @@ function imprinter.tick(machines, config)
 
       if itemName:find("waste") then
         -- Genetic waste — route to export chest
-        local exportChest = getExportChest(config)
-        if exportChest then
-          inventory.move(imprinterName, slot, exportChest)
+        local exportChests = inventory.getExportChests(config)
+        if inventory.first(exportChests) then
+          inventory.moveTo(imprinterName, slot, exportChests)
           tracker.addLog("Imprint failed: genetic waste")
         end
 
@@ -104,19 +95,16 @@ function imprinter.tick(machines, config)
         local info = bee.inspect(imp, slot)
         if info then
           if imprinter.needsImprinting(info, config) then
-            -- Still missing traits — leave in imprinter for next cycle
-            -- or move to drone buffer for re-routing
-            local droneBuffer = config.chests.droneBuffer
-            if droneBuffer then
-              inventory.move(imprinterName, slot, droneBuffer)
+            -- Still missing traits — move to drone buffer for re-routing
+            if inventory.first(config.chests.droneBuffer) then
+              inventory.moveTo(imprinterName, slot, config.chests.droneBuffer)
               tracker.addLog("Re-queuing " .. (info.species or "?") ..
                 " (still needs: " .. (imprinter.getMissingTrait(info, config) or "?") .. ")")
             end
           else
             -- All traits good — send to drone buffer for apiary routing
-            local droneBuffer = config.chests.droneBuffer
-            if droneBuffer then
-              inventory.move(imprinterName, slot, droneBuffer)
+            if inventory.first(config.chests.droneBuffer) then
+              inventory.moveTo(imprinterName, slot, config.chests.droneBuffer)
               tracker.addLog("Imprinted: " .. (info.species or "?") .. " traits complete")
             end
           end
@@ -126,35 +114,38 @@ function imprinter.tick(machines, config)
   end
 
   -- Look for bees in drone buffer that need imprinting
-  local droneBuffer = config.chests.droneBuffer
-  if not droneBuffer then return end
+  if not inventory.first(config.chests.droneBuffer) then return end
 
-  local bufferPeri = peripheral.wrap(droneBuffer)
-  if not bufferPeri then return end
-  local bufferSize = bufferPeri.size and bufferPeri.size() or 0
+  local beeMatches = inventory.findAcross(config.chests.droneBuffer, function(meta)
+    return (meta.name or ""):find("bee_") ~= nil
+  end)
 
-  for slot = 1, bufferSize do
-    local meta = bufferPeri.getItemMeta and bufferPeri.getItemMeta(slot)
-    if meta and (meta.name or ""):find("bee_") then
-      local info = bee.inspect(bufferPeri, slot)
+  for _, match in ipairs(beeMatches) do
+    local bufPeri = peripheral.wrap(match.source)
+    if bufPeri then
+      local info = bee.inspect(bufPeri, match.slot)
       if info and imprinter.needsImprinting(info, config) then
         local traitName = imprinter.getMissingTrait(info, config)
         if not traitName then break end
 
-        -- Find a template for this trait
+        -- Find a template for this trait across supplyInput + sampleStorage
         local templateSlot = nil
         local templateSource = nil
 
-        -- Check supply input first
-        if config.chests.supplyInput then
-          templateSlot = imprinter.findTraitTemplate(config.chests.supplyInput, traitName)
-          if templateSlot then templateSource = config.chests.supplyInput end
+        local templateChests = {}
+        for _, n in ipairs(inventory.normalize(config.chests.supplyInput)) do
+          templateChests[#templateChests + 1] = n
+        end
+        for _, n in ipairs(inventory.normalize(config.chests.sampleStorage)) do
+          templateChests[#templateChests + 1] = n
         end
 
-        -- Check sample storage
-        if not templateSlot and config.chests.sampleStorage then
-          templateSlot = imprinter.findTraitTemplate(config.chests.sampleStorage, traitName)
-          if templateSlot then templateSource = config.chests.sampleStorage end
+        for _, chestName in ipairs(templateChests) do
+          templateSlot = imprinter.findTraitTemplate(chestName, traitName)
+          if templateSlot then
+            templateSource = chestName
+            break
+          end
         end
 
         if not templateSlot then
@@ -162,19 +153,16 @@ function imprinter.tick(machines, config)
           break
         end
 
-        -- Find labware in supply chest
+        -- Find labware across supply chests
         local labwareSlot = nil
-        if config.chests.supplyInput then
-          local supplyPeri = peripheral.wrap(config.chests.supplyInput)
-          if supplyPeri then
-            local supplySize = supplyPeri.size and supplyPeri.size() or 0
-            for s = 1, supplySize do
-              if bee.isLabware(supplyPeri, s) then
-                labwareSlot = s
-                break
-              end
-            end
-          end
+        local labwareSource = nil
+
+        local labwareMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
+          return (meta.name or ""):find("labware") ~= nil
+        end)
+        if labwareMatches[1] then
+          labwareSlot = labwareMatches[1].slot
+          labwareSource = labwareMatches[1].source
         end
 
         if not labwareSlot then
@@ -184,10 +172,10 @@ function imprinter.tick(machines, config)
 
         -- Load imprinter: bee + template + labware
         -- Slot assignments need Phase 0 verification
-        local movedBee = inventory.move(droneBuffer, slot, imprinterName)
+        local movedBee = inventory.move(match.source, match.slot, imprinterName)
         if movedBee > 0 then
           inventory.move(templateSource, templateSlot, imprinterName)
-          inventory.move(config.chests.supplyInput, labwareSlot, imprinterName)
+          inventory.move(labwareSource, labwareSlot, imprinterName)
           tracker.addLog("Imprinting " .. (info.species or "?") ..
             ": " .. traitName)
         end

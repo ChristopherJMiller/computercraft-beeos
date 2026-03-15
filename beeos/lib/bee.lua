@@ -14,14 +14,6 @@ function bee.inspect(inventory, slot)
     return nil
   end
 
-  local g = meta.individual.genome
-  if not g then return nil end
-
-  local active = g.active or {}
-  local inactive = g.inactive or {}
-  local activeSpecies = active.species or {}
-  local inactiveSpecies = inactive.species or {}
-
   local beeType
   if meta.name:find("princess") then
     beeType = "princess"
@@ -31,6 +23,26 @@ function bee.inspect(inventory, slot)
     beeType = "drone"
   end
 
+  local g = meta.individual.genome
+  if not g then
+    -- Unanalyzed bee: extract species from displayName (e.g. "Forest Princess")
+    local speciesName = (meta.displayName or ""):match("^(.+) %u%l+$")
+    return {
+      species = speciesName,
+      type = beeType,
+      analyzed = false,
+      isPurebred = false,
+      rawName = meta.name,
+      displayName = meta.displayName,
+      count = meta.count or 1,
+    }
+  end
+
+  local active = g.active or {}
+  local inactive = g.inactive or {}
+  local activeSpecies = active.species or {}
+  local inactiveSpecies = inactive.species or {}
+
   return {
     species = activeSpecies.displayName,
     speciesId = activeSpecies.id,
@@ -38,7 +50,7 @@ function bee.inspect(inventory, slot)
     inactiveSpeciesId = inactiveSpecies.id,
     isPurebred = activeSpecies.id == inactiveSpecies.id,
     type = beeType,
-    analyzed = meta.individual.isAnalyzed,
+    analyzed = meta.individual.analyzed,
     pristine = meta.individual.bee and meta.individual.bee.pristine,
 
     -- Traits

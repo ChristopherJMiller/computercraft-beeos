@@ -34,15 +34,30 @@ function mutations.load(analyzerName)
     return false, "No analyzer with getMutationsList found"
   end
 
+  -- Discover the correct species root UID
+  local rootUID = "rootBees"
+  if analyzer.getSpeciesRoots then
+    local rok, roots = pcall(analyzer.getSpeciesRoots)
+    if rok and roots then
+      -- Look for a bee root (usually "rootBees")
+      for root in pairs(roots) do
+        if root:find("[Bb]ee") then
+          rootUID = root
+          break
+        end
+      end
+    end
+  end
+
   -- Query all bee mutations
-  local ok, mutList = pcall(analyzer.getMutationsList, "rootBees")
+  local ok, mutList = pcall(analyzer.getMutationsList, rootUID)
   if not ok then
-    return false, "getMutationsList failed: " .. tostring(mutList)
+    return false, "getMutationsList('" .. rootUID .. "') failed: " .. tostring(mutList)
   end
 
   -- Also get all species
   if analyzer.getSpeciesList then
-    local ok2, specList = pcall(analyzer.getSpeciesList, "rootBees")
+    local ok2, specList = pcall(analyzer.getSpeciesList, rootUID)
     if ok2 and specList then
       mutations.allSpecies = {}
       for i = 1, #specList do
@@ -59,18 +74,48 @@ function mutations.load(analyzerName)
   mutations.graph = {}
   mutations.participatesIn = {}
 
+  -- Build UID → displayName lookup from species list
+  local uidToName = {}
+  if analyzer.getSpeciesList then
+    local ok3, rawSpecList = pcall(analyzer.getSpeciesList, "rootBees")
+    if ok3 and rawSpecList then
+      for _, sp in ipairs(rawSpecList) do
+        if type(sp) == "table" and sp.id and sp.displayName then
+          uidToName[sp.id] = sp.displayName
+        end
+      end
+    end
+  end
+
   for _, mut in ipairs(mutList) do
-    -- Mutation entry structure (verify with Phase 0):
-    -- { allele1 = "Species1", allele2 = "Species2", result = "ResultSpecies", chance = 0.15 }
-    local parent1 = mut.allele1 or mut.parent1 or mut[1]
-    local parent2 = mut.allele2 or mut.parent2 or mut[2]
-    local result = mut.result or mut[3]
+    -- Plethora mutation structure:
+    -- { species1 = "uid", species2 = "uid", chance = 0-100,
+    --   result = { species = { id, displayName, ... }, ... } }
+    local parent1 = mut.species1 or mut.allele1 or mut[1]
+    local parent2 = mut.species2 or mut.allele2 or mut[2]
     local chance = mut.chance or mut[4] or 0
 
-    -- Normalize: extract display names if they're tables
+    -- Extract result species from chromosome map
+    local result
+    if type(mut.result) == "table" and type(mut.result.species) == "table" then
+      result = mut.result.species.displayName
+    elseif type(mut.result) == "string" then
+      result = mut.result
+    end
+
+    -- Resolve parent UIDs to display names
+    if type(parent1) == "string" and uidToName[parent1] then
+      parent1 = uidToName[parent1]
+    end
+    if type(parent2) == "string" and uidToName[parent2] then
+      parent2 = uidToName[parent2]
+    end
+    -- Tables from older Plethora versions
     if type(parent1) == "table" then parent1 = parent1.displayName or parent1.name end
     if type(parent2) == "table" then parent2 = parent2.displayName or parent2.name end
-    if type(result) == "table" then result = result.displayName or result.name end
+
+    -- Normalize chance from 0-100 to 0-1
+    if chance > 1 then chance = chance / 100 end
 
     if parent1 and parent2 and result then
       if not mutations.graph[result] then

@@ -127,4 +127,70 @@ function inventory.size(periName)
   return p.size and p.size() or 0
 end
 
+--- Normalize a config value to an array of peripheral names.
+-- nil → {}, "chest_0" → {"chest_0"}, {"a","b"} → as-is.
+-- @param value nil, string, or table
+-- @return table (array of strings)
+function inventory.normalize(value)
+  if value == nil then return {} end
+  if type(value) == "string" then return { value } end
+  if type(value) == "table" then return value end
+  return {}
+end
+
+--- Get the first peripheral name from a config value, or nil.
+-- @param value nil, string, or table
+-- @return string or nil
+function inventory.first(value)
+  if value == nil then return nil end
+  if type(value) == "string" then return value end
+  if type(value) == "table" then return value[1] end
+  return nil
+end
+
+--- Move an item to the first chest in a list that accepts it.
+-- Tries each chest in order until one succeeds (has space).
+-- @param fromName Source peripheral name
+-- @param fromSlot Source slot number
+-- @param toNames Config value (nil, string, or table of names)
+-- @param toSlot Destination slot (optional)
+-- @param limit Max items to move (optional)
+-- @return Number of items moved
+function inventory.moveTo(fromName, fromSlot, toNames, toSlot, limit)
+  local names = inventory.normalize(toNames)
+  for _, name in ipairs(names) do
+    local moved = inventory.move(fromName, fromSlot, name, toSlot, limit)
+    if moved > 0 then return moved end
+  end
+  return 0
+end
+
+--- Find all slots matching a predicate across multiple peripherals.
+-- Like findSlots but spans multiple chests, adding a source field.
+-- @param periNames Config value (nil, string, or table of names)
+-- @param predicate function(meta) -> boolean
+-- @return List of { slot=n, meta=table, source=peripheralName }
+function inventory.findAcross(periNames, predicate)
+  local names = inventory.normalize(periNames)
+  local results = {}
+  for _, name in ipairs(names) do
+    local matches = inventory.findSlots(name, predicate)
+    for _, match in ipairs(matches) do
+      match.source = name
+      results[#results + 1] = match
+    end
+  end
+  return results
+end
+
+--- Get the export chest config value with backwards-compatible fallback.
+-- Consolidates the getExportChest pattern duplicated across modules.
+-- @param cfg BeeOS config
+-- @return Config value (nil, string, or table) suitable for normalize/first/moveTo
+function inventory.getExportChests(cfg)
+  return cfg.chests.export
+    or cfg.chests.productOutput
+    or cfg.chests.surplusOutput
+end
+
 return inventory

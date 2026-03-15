@@ -4,6 +4,7 @@
 local tracker = require("lib.tracker")
 local apiary = require("lib.apiary")
 local discovery = require("lib.discovery")
+local inventory = require("lib.inventory")
 local state = require("lib.state")
 
 local display = {}
@@ -31,12 +32,12 @@ display.updateStatus = nil  -- nil or "updating" or "done: 16 OK, 0 failed"
 
 -- Config roles displayed on Config tab
 local CONFIG_ROLES = {
-  { key = "chests.droneBuffer",      label = "Drone Buffer" },
-  { key = "chests.sampleStorage",    label = "Sample Storage" },
-  { key = "chests.export",           label = "Export (AE2)" },
-  { key = "chests.templateOutput",   label = "Template Output" },
-  { key = "chests.supplyInput",      label = "Supply Input" },
-  { key = "chests.princessStorage",  label = "Princess Store" },
+  { key = "chests.droneBuffer",      label = "Drone Buffer",     multi = true },
+  { key = "chests.sampleStorage",    label = "Sample Storage",   multi = true },
+  { key = "chests.export",           label = "Export (AE2)",     multi = true },
+  { key = "chests.templateOutput",   label = "Template Output",  multi = true },
+  { key = "chests.supplyInput",      label = "Supply Input",     multi = true },
+  { key = "chests.princessStorage",  label = "Princess Store",   multi = true },
   { key = "turtle.name",            label = "Turtle" },
   { key = "machines.analyzer",      label = "Analyzer" },
 }
@@ -382,7 +383,20 @@ local function drawConfig(mon, w, h, startY)
     if y > h - 2 then break end
 
     local val = getConfigValue(role.key)
-    local displayVal = val or "<not set>"
+    local displayVal
+
+    if role.multi then
+      local names = inventory.normalize(val)
+      if #names == 0 then
+        displayVal = "<not set>"
+      elseif #names == 1 then
+        displayVal = names[1]
+      else
+        displayVal = names[1] .. " [" .. #names .. "]"
+      end
+    else
+      displayVal = val or "<not set>"
+    end
 
     -- Truncate long peripheral names
     local maxValLen = scanCol - valueCol - 1
@@ -390,8 +404,9 @@ local function drawConfig(mon, w, h, startY)
       displayVal = displayVal:sub(1, maxValLen - 1) .. "~"
     end
 
+    local hasVal = role.multi and #inventory.normalize(val) > 0 or (not role.multi and val)
     drawText(mon, nameCol, y, role.label, colors.white, colors.black)
-    drawText(mon, valueCol, y, displayVal, val and colors.lime or colors.lightGray)
+    drawText(mon, valueCol, y, displayVal, hasVal and colors.lime or colors.lightGray)
 
     -- [Scan] button
     drawText(mon, scanCol, y, "[Scan]", colors.cyan, colors.black)
@@ -412,6 +427,7 @@ end
 --- Draw the peripheral picker overlay.
 local function drawPicker(mon, w, h, startY)
   local y = startY
+  local isMulti = display.pickerMode.multi
 
   drawText(mon, 1, y, "Select: " .. display.pickerMode.label, colors.yellow, colors.black)
   drawText(mon, w - 5, y, "[Back]", colors.red, colors.black)
@@ -419,14 +435,31 @@ local function drawPicker(mon, w, h, startY)
   drawLine(mon, y, w, "-")
   y = y + 1
 
-  -- "<none>" option to clear
-  drawText(mon, 2, y, "<clear>", colors.orange, colors.black)
+  -- "<clear>" option to reset
+  drawText(mon, 2, y, "[x] <clear all>", colors.orange, colors.black)
   y = y + 1
+
+  -- Get current assigned names for multi mode
+  local assigned = {}
+  if isMulti then
+    local val = getConfigValue(display.pickerMode.key)
+    for _, n in ipairs(inventory.normalize(val)) do
+      assigned[n] = true
+    end
+  end
 
   local maxRows = h - y
   for i = 1 + display.pickerScroll, math.min(#display.pickerList, maxRows + display.pickerScroll) do
     if y > h then break end
-    drawText(mon, 2, y, display.pickerList[i], colors.white, colors.black)
+    local name = display.pickerList[i]
+    if isMulti then
+      local prefix = assigned[name] and "[-] " or "[+] "
+      local clr = assigned[name] and colors.red or colors.lime
+      drawText(mon, 2, y, prefix, clr, colors.black)
+      drawText(mon, 6, y, name, colors.white, colors.black)
+    else
+      drawText(mon, 2, y, name, colors.white, colors.black)
+    end
     y = y + 1
   end
 
@@ -490,6 +523,8 @@ function display.handleTouch(x, y)
 
   -- Picker mode touch handling
   if display.pickerMode then
+    local isMulti = display.pickerMode.multi
+
     -- [Back] button (top-right area)
     if y == 4 and x >= w - 5 then
       display.pickerMode = nil
@@ -498,13 +533,15 @@ function display.handleTouch(x, y)
       return { action = "tab", tab = "config" }
     end
 
-    -- <clear> option (line 6 = startY + 2)
+    -- <clear all> option (line 6 = startY + 2)
     if y == 6 then
       saveConfigValue(display.pickerMode.key, nil)
       tracker.addLog("Config cleared: " .. display.pickerMode.label)
-      display.pickerMode = nil
-      display.pickerList = {}
-      display.pickerScroll = 0
+      if not isMulti then
+        display.pickerMode = nil
+        display.pickerList = {}
+        display.pickerScroll = 0
+      end
       return { action = "config_set" }
     end
 
@@ -512,11 +549,44 @@ function display.handleTouch(x, y)
     local idx = (y - 7) + 1 + display.pickerScroll
     if idx >= 1 and idx <= #display.pickerList then
       local selected = display.pickerList[idx]
-      saveConfigValue(display.pickerMode.key, selected)
-      tracker.addLog("Config set: " .. display.pickerMode.label .. " = " .. selected)
-      display.pickerMode = nil
-      display.pickerList = {}
-      display.pickerScroll = 0
+
+      if isMulti then
+        -- Toggle: add or remove from the array
+        local val = getConfigValue(display.pickerMode.key)
+        local current = inventory.normalize(val)
+        local found = false
+        local newList = {}
+        for _, n in ipairs(current) do
+          if n == selected then
+            found = true
+          else
+            newList[#newList + 1] = n
+          end
+        end
+        if not found then
+          newList[#newList + 1] = selected
+        end
+        -- Save as array if >1, string if 1, nil if 0
+        local saveVal
+        if #newList == 0 then
+          saveVal = nil
+        elseif #newList == 1 then
+          saveVal = newList[1]
+        else
+          saveVal = newList
+        end
+        saveConfigValue(display.pickerMode.key, saveVal)
+        local action_word = found and "removed" or "added"
+        tracker.addLog("Config " .. action_word .. ": " ..
+          display.pickerMode.label .. " " .. selected)
+        -- Stay in picker for multi mode
+      else
+        saveConfigValue(display.pickerMode.key, selected)
+        tracker.addLog("Config set: " .. display.pickerMode.label .. " = " .. selected)
+        display.pickerMode = nil
+        display.pickerList = {}
+        display.pickerScroll = 0
+      end
       return { action = "config_set" }
     end
 
@@ -560,7 +630,7 @@ function display.handleTouch(x, y)
     -- [Scan] buttons: roles start at line 6 (startY + header + separator)
     for i, role in ipairs(CONFIG_ROLES) do
       if y == 4 + 2 + (i - 1) and x >= scanCol then
-        display.pickerMode = { key = role.key, label = role.label }
+        display.pickerMode = { key = role.key, label = role.label, multi = role.multi }
         display.pickerList = scanPeripherals(role.key)
         display.pickerScroll = 0
         return { action = "picker_open" }
