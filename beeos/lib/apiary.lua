@@ -5,6 +5,7 @@ local bee = require("lib.bee")
 local inventory = require("lib.inventory")
 local tracker = require("lib.tracker")
 local imprinter = require("lib.imprinter")
+local state = require("lib.state")
 
 local apiary = {}
 
@@ -115,10 +116,32 @@ function apiary.tryRestart(name, p, config)
     targetSpecies = config.apiaryAssignments[name]
   end
 
+  -- Check bootstrap queue for priority species (when no assignment set)
+  local bootstrapTarget = nil
+  if not targetSpecies then
+    local queue = state.load("bootstrap_queue", {})
+    bootstrapTarget = next(queue)
+  end
+
+  -- Try queens first — they go in slot 1 alone, no drone needed
+  local queenSpecies = targetSpecies or bootstrapTarget
+  local queenSlot, queenSource = apiary.findQueen(config, queenSpecies)
+  if not queenSlot and not queenSpecies then
+    queenSlot, queenSource = apiary.findQueen(config, nil)
+  end
+  if queenSlot then
+    local movedQueen = inventory.move(queenSource, queenSlot, name, 1)
+    if movedQueen > 0 then
+      tracker.addLog("Queen placed in apiary: " .. name)
+      return true
+    end
+  end
+
+  -- Fall through to princess+drone logic
   if not inventory.first(config.chests.droneBuffer) then return false end
 
-  -- Search for a princess: check princessStorage first, then droneBuffer
-  local princessSlot, princessSource = apiary.findPrincess(config, targetSpecies)
+  local princessSlot, princessSource = apiary.findPrincess(config,
+    targetSpecies or bootstrapTarget)
   if not princessSlot then return false end
 
   -- Check princess traits — if missing, route to imprinter instead
@@ -207,6 +230,34 @@ function apiary.findPrincess(config, targetSpecies)
     end
   end
 
+  return nil, nil
+end
+
+--- Find a queen in princessStorage.
+-- Queens can be placed directly in an apiary without a drone.
+-- @param config BeeOS config
+-- @param targetSpecies Optional species filter
+-- @return slot, sourceName or nil, nil
+function apiary.findQueen(config, targetSpecies)
+  local sources = inventory.normalize(config.chests.princessStorage)
+  for _, sourceName in ipairs(sources) do
+    local peri = peripheral.wrap(sourceName)
+    if peri then
+      local size = peri.size and peri.size() or 0
+      for slot = 1, size do
+        if bee.isQueen(peri, slot) then
+          if targetSpecies then
+            local info = bee.inspect(peri, slot)
+            if info and info.species == targetSpecies then
+              return slot, sourceName
+            end
+          else
+            return slot, sourceName
+          end
+        end
+      end
+    end
+  end
   return nil, nil
 end
 

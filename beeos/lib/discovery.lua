@@ -9,6 +9,9 @@ local mutations = require("lib.mutations")
 local tracker = require("lib.tracker")
 local state = require("lib.state")
 
+-- Bootstrap queue: species that need establishment (samples + templates)
+-- Persisted via state module as "bootstrap_queue" = { [species] = true }
+
 local discovery = {}
 
 -- Gendustry Genetic Imprinter slot indices (0-indexed for CC pushItems)
@@ -66,6 +69,49 @@ function discovery.markDiscovered(species)
     discovery.discovered[species] = true
     state.save("discovered", discovery.discovered)
     tracker.addLog("DISCOVERED: " .. species .. "!")
+  end
+end
+
+--- Add a species to the bootstrap queue (needs samples + templates).
+function discovery.addBootstrap(species)
+  local queue = state.load("bootstrap_queue", {})
+  if not queue[species] then
+    queue[species] = true
+    state.save("bootstrap_queue", queue)
+    tracker.addLog("Bootstrap queued: " .. species)
+  end
+end
+
+--- Remove a species from the bootstrap queue (fully established).
+function discovery.removeBootstrap(species)
+  local queue = state.load("bootstrap_queue", {})
+  if queue[species] then
+    queue[species] = nil
+    state.save("bootstrap_queue", queue)
+    tracker.addLog("Bootstrap complete: " .. species)
+  end
+end
+
+--- Get the current bootstrap queue.
+function discovery.getBootstrapQueue()
+  return state.load("bootstrap_queue", {})
+end
+
+--- Route a bee from the Mutatron output to the correct storage.
+-- Queens/princesses go to princessStorage, drones go to droneBuffer.
+-- @param mutatronName Peripheral name of the Mutatron
+-- @param info Bee info from bee.inspect()
+-- @param config BeeOS config
+local function routeMutatronOutput(mutatronName, info, config)
+  if info.type == "queen" or info.type == "princess" then
+    if inventory.first(config.chests.princessStorage) then
+      inventory.moveTo(mutatronName, MUT_OUTPUT, config.chests.princessStorage)
+    end
+    discovery.addBootstrap(info.species)
+  else
+    if inventory.first(config.chests.droneBuffer) then
+      inventory.moveTo(mutatronName, MUT_OUTPUT, config.chests.droneBuffer)
+    end
   end
 end
 
@@ -549,10 +595,8 @@ function discovery.checkMutatron(machines, config)
         tracker.addLog("SUCCESS: Bred " .. info.species .. "!")
         discovery.markDiscovered(info.species)
 
-        -- Move to drone buffer for sampling
-        if inventory.first(config.chests.droneBuffer) then
-          inventory.moveTo(mutatronName, MUT_OUTPUT, config.chests.droneBuffer)
-        end
+        -- Route based on bee type (queen/princess -> apiary, drone -> sampling)
+        routeMutatronOutput(mutatronName, info, config)
 
         goIdle(nil)
         discovery.currentTarget = nil
@@ -566,10 +610,8 @@ function discovery.checkMutatron(machines, config)
           discovery.markDiscovered(info.species)
         end
 
-        -- Move to buffer for sampling
-        if inventory.first(config.chests.droneBuffer) then
-          inventory.moveTo(mutatronName, MUT_OUTPUT, config.chests.droneBuffer)
-        end
+        -- Route based on bee type (queen/princess -> apiary, drone -> sampling)
+        routeMutatronOutput(mutatronName, info, config)
 
         -- Retry if we haven't exceeded max attempts
         if discovery.attempts < discovery.maxAttempts then
@@ -620,6 +662,7 @@ function discovery.getProgress()
     idleReason = discovery.idleReason,
     imprintStep = discovery.imprintStep,
     candidates = candidates,
+    bootstrapQueue = discovery.getBootstrapQueue(),
   }
 end
 

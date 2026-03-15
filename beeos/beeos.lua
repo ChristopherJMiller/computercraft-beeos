@@ -244,6 +244,15 @@ local function discoveryLoop()
           discovery.markDiscovered(species)
         end
 
+        -- Check bootstrap queue and clear established species
+        local queue = discovery.getBootstrapQueue()
+        for species in pairs(queue) do
+          local entry = tracker.catalog[species]
+          if entry and entry.samples >= 1 and entry.templates >= 1 then
+            discovery.removeBootstrap(species)
+          end
+        end
+
         local ok, err = pcall(discovery.tick, machines, config)
         if not ok then
           tracker.addLog("Discovery error: " .. tostring(err))
