@@ -37,7 +37,7 @@ function mutations.load(analyzerName)
   local rootUID = "rootBees"
 
   -- Query all bee mutations
-  local ok, mutList = pcall(analyzer.getMutationsList, rootUID)
+  local ok, mutList = pcall(function() return analyzer.getMutationsList(rootUID) end)
   if not ok then
     -- Log full error to file for debugging (monitor truncates it)
     local f = fs.open("beeos_mutations_error.log", "w")
@@ -54,7 +54,7 @@ function mutations.load(analyzerName)
 
   -- Also get all species
   if analyzer.getSpeciesList then
-    local ok2, specList = pcall(analyzer.getSpeciesList, rootUID)
+    local ok2, specList = pcall(function() return analyzer.getSpeciesList(rootUID) end)
     if ok2 and specList then
       mutations.allSpecies = {}
       for i = 1, #specList do
@@ -74,7 +74,7 @@ function mutations.load(analyzerName)
   -- Build UID → displayName lookup from species list
   local uidToName = {}
   if analyzer.getSpeciesList then
-    local ok3, rawSpecList = pcall(analyzer.getSpeciesList, "rootBees")
+    local ok3, rawSpecList = pcall(function() return analyzer.getSpeciesList(rootUID) end)
     if ok3 and rawSpecList then
       for _, sp in ipairs(rawSpecList) do
         if type(sp) == "table" and sp.id and sp.displayName then
