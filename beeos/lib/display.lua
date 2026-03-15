@@ -471,49 +471,100 @@ local function drawDiscovery(mon, w, h, startY)
   drawText(mon, 11, y, tostring(progress.reachable) .. " species in one step", colors.lime)
   y = y + 1
 
+  -- State with sub-step
   drawText(mon, 1, y, "State:    ", colors.lightGray, colors.black)
-  local stateColor = progress.state == "idle" and colors.lightGray or colors.yellow
-  drawText(mon, 11, y, progress.state, stateColor)
+  local stateColors = {
+    idle = colors.lightGray,
+    preparing = colors.yellow,
+    imprinting = colors.orange,
+    mutating = colors.lime,
+  }
+  local stateColor = stateColors[progress.state] or colors.lightGray
+  local stateLabel = progress.state
+  if progress.state == "imprinting" and progress.imprintStep then
+    stateLabel = stateLabel .. " (" .. progress.imprintStep .. ")"
+  end
+  drawText(mon, 11, y, stateLabel, stateColor)
   y = y + 1
+
+  -- Idle reason
+  if progress.state == "idle" and progress.idleReason then
+    drawText(mon, 1, y, "Reason:   ", colors.lightGray, colors.black)
+    drawText(mon, 11, y, progress.idleReason, colors.orange)
+    y = y + 1
+  end
 
   if progress.currentTarget then
     y = y + 1
-    drawText(mon, 1, y, "Target: ", colors.lightGray, colors.black)
-    drawText(mon, 9, y, progress.currentTarget, colors.cyan)
+    drawText(mon, 1, y, "Target:  ", colors.lightGray, colors.black)
+    drawText(mon, 10, y, progress.currentTarget, colors.cyan)
     y = y + 1
 
     if progress.currentMutation then
-      drawText(mon, 1, y, "Parents:", colors.lightGray, colors.black)
-      drawText(mon, 9, y, progress.currentMutation.parent1 .. " + " ..
+      drawText(mon, 1, y, "Parents: ", colors.lightGray, colors.black)
+      drawText(mon, 10, y, progress.currentMutation.parent1 .. " + " ..
         progress.currentMutation.parent2, colors.white)
       y = y + 1
 
-      drawText(mon, 1, y, "Chance: ", colors.lightGray, colors.black)
-      drawText(mon, 9, y, string.format("%.0f%%", (progress.currentMutation.chance or 0) * 100),
+      drawText(mon, 1, y, "Chance:  ", colors.lightGray, colors.black)
+      drawText(mon, 10, y, string.format("%.0f%%", (progress.currentMutation.chance or 0) * 100),
         colors.orange)
       y = y + 1
     end
 
-    drawText(mon, 1, y, "Attempt:", colors.lightGray, colors.black)
-    drawText(mon, 9, y, progress.attempts .. " / " .. discovery.maxAttempts, colors.white)
+    drawText(mon, 1, y, "Attempt: ", colors.lightGray, colors.black)
+    drawText(mon, 10, y, progress.attempts .. " / " .. discovery.maxAttempts, colors.white)
+    y = y + 1
+  end
+
+  -- Candidate queue
+  local candidates = progress.candidates or {}
+  if #candidates > 0 and y + 2 <= h then
+    y = y + 1
+    drawText(mon, 1, y, "Next Up:", colors.yellow, colors.black)
+    y = y + 1
+    for _, cand in ipairs(candidates) do
+      if y > h - 3 then break end  -- Reserve space for progress bar
+      local prefix = " "
+      local nameColor = colors.white
+      if cand.species == progress.currentTarget then
+        prefix = ">"
+        nameColor = colors.cyan
+      end
+      local chance = string.format("%3.0f%%", (cand.mutation.chance or 0) * 100)
+      local parents = cand.mutation.parent1 .. "+" .. cand.mutation.parent2
+      -- Truncate parents if too long
+      local maxParents = w - 7 - #cand.species
+      if #parents > maxParents and maxParents > 3 then
+        parents = parents:sub(1, maxParents - 1) .. "~"
+      end
+      drawText(mon, 1, y, prefix, nameColor, colors.black)
+      drawText(mon, 2, y, chance, colors.orange)
+      drawText(mon, 7, y, cand.species, nameColor)
+      drawText(mon, 7 + #cand.species + 1, y, parents, colors.lightGray)
+      y = y + 1
+    end
   end
 
   -- Progress bar
   if progress.total > 0 then
-    y = y + 2
-    local pct = progress.discovered / progress.total
-    local barWidth = w - 2
-    local filled = math.floor(pct * barWidth)
-
-    drawText(mon, 1, y, "[", colors.white, colors.black)
-    mon.setBackgroundColor(colors.green)
-    mon.write(string.rep("=", filled))
-    mon.setBackgroundColor(colors.gray)
-    mon.write(string.rep(" ", barWidth - filled))
-    mon.setBackgroundColor(colors.black)
-    mon.write("]")
     y = y + 1
-    drawText(mon, 1, y, string.format("%.1f%% complete", pct * 100), colors.lightGray, colors.black)
+    if y + 1 <= h then
+      local pct = progress.discovered / progress.total
+      local barWidth = w - 2
+      local filled = math.floor(pct * barWidth)
+
+      drawText(mon, 1, y, "[", colors.white, colors.black)
+      mon.setBackgroundColor(colors.green)
+      mon.write(string.rep("=", filled))
+      mon.setBackgroundColor(colors.gray)
+      mon.write(string.rep(" ", barWidth - filled))
+      mon.setBackgroundColor(colors.black)
+      mon.write("]")
+      y = y + 1
+      drawText(mon, 1, y, string.format("%.1f%% complete", pct * 100),
+        colors.lightGray, colors.black)
+    end
   end
 end
 

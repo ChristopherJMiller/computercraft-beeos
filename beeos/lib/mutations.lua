@@ -336,6 +336,47 @@ function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies)
   return candidates[1].species, candidates[1].mutation
 end
 
+--- Get the full sorted list of reachable candidates for display.
+-- Same logic as getNextTarget but returns all candidates up to a limit.
+-- @param knownSpecies Set of known species { [name] = true }
+-- @param skipSpecies Set of species to skip { [name] = true }
+-- @param limit Max candidates to return (default 5)
+-- @return Array of { species=, mutation= } sorted by chance descending
+function mutations.getCandidateList(knownSpecies, skipSpecies, limit)
+  skipSpecies = skipSpecies or {}
+  limit = limit or 5
+
+  local candidates = {}
+  for result, mutList in pairs(mutations.graph) do
+    if not knownSpecies[result] and not skipSpecies[result] then
+      for _, mut in ipairs(mutList) do
+        if knownSpecies[mut.parent1] and knownSpecies[mut.parent2] then
+          candidates[#candidates + 1] = {
+            species = result,
+            mutation = mut,
+          }
+          break
+        end
+      end
+    end
+  end
+
+  table.sort(candidates, function(a, b)
+    return (a.mutation.chance or 0) > (b.mutation.chance or 0)
+  end)
+
+  -- Trim to limit
+  if #candidates > limit then
+    local trimmed = {}
+    for i = 1, limit do
+      trimmed[i] = candidates[i]
+    end
+    return trimmed
+  end
+
+  return candidates
+end
+
 --- Get total counts for display.
 -- @param knownSpecies Set of known species
 -- @return discovered count, total count, reachable count
