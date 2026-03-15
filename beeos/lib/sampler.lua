@@ -688,7 +688,10 @@ function sampler.collectFromTurtle(config, machines)
   local turtleName = sampler.findTurtle(config, machines)
   if not turtleName then return end
 
-  if not inventory.first(config.chests.templateOutput) then return end
+  if not inventory.first(config.chests.templateOutput) then
+    tracker.addLog("Cannot collect template: no templateOutput configured")
+    return
+  end
 
   local items = inventory.listItems(turtleName)
   for _, item in ipairs(items) do
@@ -701,11 +704,14 @@ function sampler.collectFromTurtle(config, machines)
       end
     end
 
-    local moved = inventory.moveTo(turtleName, item.slot, config.chests.templateOutput)
+    local moved = inventory.moveTo(turtleName, item.slot,
+      config.chests.templateOutput)
     if moved > 0 then
       local species = sampler.pendingTemplate or "unknown"
       tracker.addLog("Collected template: " .. species)
       sampler.pendingTemplate = nil
+    else
+      tracker.addLog("Failed to move template from turtle to output")
     end
   end
 end

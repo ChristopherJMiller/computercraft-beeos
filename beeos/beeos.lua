@@ -259,22 +259,35 @@ local function samplerLoop()
       -- Collect finished templates before starting new crafts
       pcall(sampler.collectFromTurtle, config, machines)
 
-      -- Template crafting: discovery needs first, then background
+      -- Template crafting: one craft per loop (single turtle)
+      -- Discovery needs first, then background
+      local crafted = false
       for species in pairs(discoveryNeeds) do
-        local data = tracker.catalog[species]
-        if data and data.samples >= 1 and data.templates == 0 then
-          tracker.addLog("Attempting template craft: " .. species
-            .. " (samples=" .. data.samples .. ")")
-          local tok, terr = pcall(sampler.requestTemplate, species, machines,
-            config)
-          if not tok then
-            tracker.addLog("Template craft error: " .. tostring(terr))
+        if not crafted then
+          local data = tracker.catalog[species]
+          if data and data.samples >= 1 and data.templates == 0 then
+            local tok, tret = pcall(sampler.requestTemplate, species,
+              machines, config)
+            if not tok then
+              tracker.addLog("Template craft error: " .. tostring(tret))
+            elseif tret then
+              crafted = true
+            end
           end
         end
       end
-      for species, data in pairs(tracker.catalog) do
-        if data.samples >= 1 and data.templates == 0 then
-          pcall(sampler.requestTemplate, species, machines, config)
+      if not crafted then
+        for species, data in pairs(tracker.catalog) do
+          if not crafted
+              and data.samples >= 1 and data.templates == 0 then
+            local tok, tret = pcall(sampler.requestTemplate, species,
+              machines, config)
+            if not tok then
+              tracker.addLog("Template craft error: " .. tostring(tret))
+            elseif tret then
+              crafted = true
+            end
+          end
         end
       end
 
