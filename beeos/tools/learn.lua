@@ -406,13 +406,21 @@ end
 
 -- Main
 if args[1] == "status" then
-  -- Load config to find chest names
+  -- Load config + runtime overrides (chest names are stored in overrides)
   local configFn = loadfile("config.lua")
   if not configFn then
     printError("Cannot load config.lua (run from BeeOS root dir)")
     return
   end
   local cfg = configFn()
+  local overrides = stateLoad("config_overrides", {})
+  for section, values in pairs(overrides) do
+    if type(cfg[section]) == "table" and type(values) == "table" then
+      for k, v in pairs(values) do
+        cfg[section][k] = v
+      end
+    end
+  end
 
   local chests = {}
   if cfg.chests.sampleStorage then
