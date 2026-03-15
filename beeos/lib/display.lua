@@ -47,6 +47,7 @@ local CONFIG_ROLES = {
   { key = "chests.princessStorage",   label = "Princess Store",   multi = true },
   { key = "chests.traitTemplates",    label = "Trait Templates",  multi = true },
   { key = "chests.discoveryStaging",  label = "Disco Staging",    multi = true },
+  { key = "turtle.name",             label = "Craft Turtle",     multi = false },
 }
 
 --- Initialize the display.
