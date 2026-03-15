@@ -4,6 +4,7 @@
 local tracker = require("lib.tracker")
 local apiary = require("lib.apiary")
 local discovery = require("lib.discovery")
+local mutations = require("lib.mutations")
 local sampler = require("lib.sampler")
 local imprinter = require("lib.imprinter")
 local analyzer = require("lib.analyzer")
@@ -216,6 +217,20 @@ end
 --- Draw the species catalog tab.
 local function drawSpecies(mon, w, h, startY)
   local species = tracker.sortedSpecies()
+
+  -- Re-sort: active species (on a machine) float to top
+  table.sort(species, function(a, b)
+    local aActive = getActivityIndicator(a.name) ~= nil
+    local bActive = getActivityIndicator(b.name) ~= nil
+    if aActive ~= bActive then return aActive end
+    -- Within same active/inactive group, keep original color+alpha order
+    local colorOrder = { [colors.red] = 1, [colors.orange] = 2, [colors.lime] = 3, [colors.gray] = 4 }
+    local ao = colorOrder[a.color] or 5
+    local bo = colorOrder[b.color] or 5
+    if ao ~= bo then return ao < bo end
+    return a.name < b.name
+  end)
+
   local y = startY
 
   -- Header
@@ -679,7 +694,11 @@ function display.render()
   -- Title bar
   drawText(mon, 1, 1, " BeeOS ", colors.black, colors.yellow)
   local stats = tracker.stats()
-  drawText(mon, 9, 1, string.format(" %d species ", stats.discovered), colors.white, colors.black)
+  local titleInfo = string.format(" %d species ", stats.discovered)
+  drawText(mon, 9, 1, titleInfo, colors.white, colors.black)
+  if mutations.source then
+    drawText(mon, 9 + #titleInfo, 1, " " .. mutations.source .. " ", colors.lightGray, colors.black)
+  end
 
   -- Tab bar
   drawTabs(mon, w)
