@@ -34,22 +34,7 @@ function mutations.load(analyzerName)
     return false, "No analyzer with getMutationsList found"
   end
 
-  -- Discover the correct species root UID
   local rootUID = "rootBees"
-  if analyzer.getSpeciesRoots then
-    local rok, roots = pcall(analyzer.getSpeciesRoots)
-    if rok and roots then
-      -- Look for a bee root (usually "rootBees")
-      -- roots may be an array of strings or a set (keys=strings)
-      for k, v in pairs(roots) do
-        local name = type(k) == "string" and k or tostring(v)
-        if name:find("[Bb]ee") then
-          rootUID = name
-          break
-        end
-      end
-    end
-  end
 
   -- Query all bee mutations
   local ok, mutList = pcall(analyzer.getMutationsList, rootUID)
