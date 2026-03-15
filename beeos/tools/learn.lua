@@ -35,16 +35,41 @@ local function titleCase(s)
   end)
 end
 
---- Build sorted species list from persisted state for autocomplete.
+--- Load all species from mutations preset file.
+local function loadPresetSpecies()
+  local path = "data/presets/meatballcraft.lua"
+  if not fs.exists(path) then return {} end
+  local fn, err = loadfile(path)
+  if not fn then
+    printError("Preset load error: " .. (err or "unknown"))
+    return {}
+  end
+  local ok, preset = pcall(fn)
+  if not ok or not preset or not preset.mutations then return {} end
+  local species = {}
+  for result, parents in pairs(preset.mutations) do
+    species[result] = true
+    for _, entry in ipairs(parents) do
+      if entry.parent1 then species[entry.parent1] = true end
+      if entry.parent2 then species[entry.parent2] = true end
+    end
+  end
+  return species
+end
+
+--- Build sorted species list for autocomplete.
+-- Merges preset mutations (full modpack list) + runtime state.
 local function buildSpeciesList()
   local seen = {}
   local list = {}
   local function add(sp)
     if not seen[sp] then seen[sp] = true; list[#list + 1] = sp end
   end
+  -- Preset has the full species list
+  for sp in pairs(loadPresetSpecies()) do add(sp) end
+  -- Runtime state may have species not in preset (custom/MagicBees)
   for sp in pairs(stateLoad("discovered", {})) do add(sp) end
   for sp in pairs(stateLoad("catalog", {})) do add(sp) end
-  -- Also pull species from already-learned template hashes
   for _, sp in pairs(stateLoad("template_hashes", {})) do add(sp) end
   table.sort(list)
   return list
