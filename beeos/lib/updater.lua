@@ -76,26 +76,47 @@ function updater.download(url, path)
 end
 
 --- Update BeeOS by downloading all files except config.lua.
+-- Fetches the latest file manifest from GitHub first so newly added
+-- files are picked up without needing a reboot.
 -- @param printFn Optional function(msg) for output (defaults to print)
 -- @return number successCount, number failCount
 function updater.update(printFn)
   printFn = printFn or print
 
-  local success = 0
+  -- Fetch latest updater source to get current file manifest
+  local response = http.get(updater.BASE_URL .. "lib/updater.lua")
+  if not response then
+    printFn("  Cannot reach GitHub")
+    return 0, 1
+  end
+  local source = response.readAll()
+  response.close()
+
+  -- Save updated updater to disk
+  local f = fs.open("lib/updater.lua", "w")
+  if f then f.write(source); f.close() end
+
+  -- Extract file paths from fresh source
+  local files = {}
+  for path in source:gmatch('path = "([^"]+)"') do
+    files[#files + 1] = path
+  end
+
+  -- Download all files except config.lua and updater (already saved above)
+  local success = 1  -- count updater as success
   local failed = 0
 
-  for _, file in ipairs(updater.FILES) do
-    -- Skip config.lua during updates to preserve user defaults
-    if file.path ~= "config.lua" then
-      local url = updater.BASE_URL .. file.path
-      printFn("  " .. file.path .. " ... ")
+  for _, path in ipairs(files) do
+    if path ~= "config.lua" and path ~= "lib/updater.lua" then
+      local url = updater.BASE_URL .. path
+      printFn("  " .. path .. " ... ")
 
-      local ok, err = updater.download(url, file.path)
+      local ok, err = updater.download(url, path)
       if ok then
-        printFn("  " .. file.path .. " OK")
+        printFn("  " .. path .. " OK")
         success = success + 1
       else
-        printFn("  " .. file.path .. " FAIL: " .. (err or "unknown"))
+        printFn("  " .. path .. " FAIL: " .. (err or "unknown"))
         failed = failed + 1
       end
     end
