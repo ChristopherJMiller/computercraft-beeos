@@ -136,7 +136,7 @@ end
 
 --- Layer 0: Passive Tracker loop
 local function trackerLoop()
-  tracker.restore()
+  -- restore() and initial scan already done in boot sequence
   local lastSpecies, lastItems, lastInvs = -1, -1, -1
   while running do
     if config.layers.tracker then
@@ -322,8 +322,7 @@ end
 
 --- Display refresh loop
 local function displayLoop()
-  display.init(config)
-
+  -- display.init() already called in boot sequence
   while running do
     -- Sync references each frame (machines table may be replaced by rescan)
     display.machines = machines
@@ -733,9 +732,56 @@ local function main()
   tracker.log = {}
   tracker.addLog("BeeOS starting up")
 
-  -- Initial network scan
+  -- Boot sequence
+  term.setTextColor(colors.yellow)
+  print("=== BeeOS Boot ===")
+  term.setTextColor(colors.white)
+
+  -- 1. Network scan
+  write("  Network scan... ")
   rescanNetwork()
-  network.printSummary(machines)
+  term.setTextColor(colors.lime)
+  print(network.count(machines, "chest") .. " chests, " ..
+    network.count(machines, "apiary") .. " apiaries")
+  term.setTextColor(colors.white)
+
+  -- 2. Restore tracker state from disk
+  write("  Restoring catalog... ")
+  tracker.restore()
+  local restored = tracker.stats()
+  term.setTextColor(colors.lime)
+  print(restored.discovered .. " species")
+  term.setTextColor(colors.white)
+
+  -- 3. Immediate inventory scan for fresh data
+  write("  Inventory scan... ")
+  local scanOk, invCount, itemCount = pcall(tracker.scan, machines)
+  if scanOk then
+    local stats = tracker.stats()
+    term.setTextColor(colors.lime)
+    print(stats.discovered .. " species, " ..
+      (itemCount or 0) .. " items in " .. (invCount or 0) .. " inventories")
+    tracker.addLog("Boot scan: " .. stats.discovered .. " species, " ..
+      (itemCount or 0) .. " items")
+  else
+    term.setTextColor(colors.red)
+    print("FAILED: " .. tostring(invCount))
+  end
+  term.setTextColor(colors.white)
+
+  -- 4. Init display with fresh data
+  write("  Display init... ")
+  display.init(config)
+  display.machines = machines
+  if display.monitor then
+    term.setTextColor(colors.lime)
+    print(display.monitorName)
+  else
+    term.setTextColor(colors.lightGray)
+    print("no monitor")
+  end
+  term.setTextColor(colors.white)
+
   print()
 
   -- Run all loops in parallel
