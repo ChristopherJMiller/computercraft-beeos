@@ -460,30 +460,37 @@ end
 function sampler.extractTransposers(machines, config)
   local transposers = sampler.getTransposers(machines, config)
 
-  for tName, tPeri in pairs(transposers) do
-    if tPeri then
-      local size = tPeri.size and tPeri.size() or 0
-      for slot = 1, size do
-        local meta = tPeri.getItemMeta and tPeri.getItemMeta(slot)
-        if meta then
-          local itemName = meta.name or ""
-          if itemName:find("gene_sample_blank") then
-            if inventory.first(config.chests.supplyInput) then
-              inventory.moveTo(tName, slot, config.chests.supplyInput)
-            end
-          elseif itemName:find("gene_sample") then
-            if inventory.first(config.chests.sampleStorage) then
-              inventory.moveTo(tName, slot, config.chests.sampleStorage)
-            end
-          elseif itemName:find("labware") then
-            if inventory.first(config.chests.supplyInput) then
-              inventory.moveTo(tName, slot, config.chests.supplyInput)
+  -- Multiple passes: machines mid-process may produce output after first scan
+  for pass = 1, 3 do
+    local foundAny = false
+    for tName, tPeri in pairs(transposers) do
+      if tPeri then
+        local size = tPeri.size and tPeri.size() or 0
+        for slot = 1, size do
+          local meta = tPeri.getItemMeta and tPeri.getItemMeta(slot)
+          if meta then
+            foundAny = true
+            local itemName = meta.name or ""
+            if itemName:find("gene_sample_blank") then
+              if inventory.first(config.chests.supplyInput) then
+                inventory.moveTo(tName, slot, config.chests.supplyInput)
+              end
+            elseif itemName:find("gene_sample") then
+              if inventory.first(config.chests.sampleStorage) then
+                inventory.moveTo(tName, slot, config.chests.sampleStorage)
+              end
+            elseif itemName:find("labware") then
+              if inventory.first(config.chests.supplyInput) then
+                inventory.moveTo(tName, slot, config.chests.supplyInput)
+              end
             end
           end
         end
+        sampler.activeTransposer[tName] = nil
       end
-      sampler.activeTransposer[tName] = nil
     end
+    if not foundAny then break end
+    if pass < 3 then sleep(0.5) end
   end
 end
 
