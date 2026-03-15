@@ -595,6 +595,10 @@ function sampler.requestTemplate(species, machines, config)
     return false
   end
 
+  -- Don't push if turtle still has items (avoids duplicate crafts)
+  local turtleItems = inventory.listItems(turtleName)
+  if #turtleItems > 0 then return false end
+
   -- Push blank template and gene sample to turtle
   local movedBlank = inventory.move(blankSource, blankSlot, turtleName, nil, 1)
   local movedSample = inventory.move(sampleSource, sampleSlot, turtleName, nil, 1)

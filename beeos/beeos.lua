@@ -788,6 +788,17 @@ local function shutdown()
   -- Turtle: collect crafted templates
   pcall(sampler.collectFromTurtle, config)
 
+  -- Signal crafting turtle(s) to stop via rednet
+  pcall(function()
+    for _, side in ipairs(rs.getSides()) do
+      if peripheral.getType(side) == "modem" and not rednet.isOpen(side) then
+        rednet.open(side)
+      end
+    end
+    rednet.broadcast("stop", "beeos")
+    tracker.addLog("Sent stop signal to turtle(s)")
+  end)
+
   tracker.addLog("Shutdown: extraction complete")
 end
 

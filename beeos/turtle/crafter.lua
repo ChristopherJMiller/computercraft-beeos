@@ -7,10 +7,24 @@
 -- inventory for the computer to pull out via the network.
 
 local POLL_INTERVAL = 2  -- seconds
+local PROTOCOL = "beeos"
 
 local function log(msg)
   local time = textutils.formatTime(os.time(), true)
   print("[" .. time .. "] " .. msg)
+end
+
+--- Open rednet on the wired modem.
+-- Finds the modem side automatically.
+-- @return boolean true if modem found and opened
+local function openModem()
+  for _, side in ipairs(rs.getSides()) do
+    if peripheral.getType(side) == "modem" then
+      rednet.open(side)
+      return true
+    end
+  end
+  return false
 end
 
 --- Count non-empty slots in the turtle's inventory.
@@ -72,11 +86,8 @@ local function arrangeCraft(slotA, slotB)
   end
 end
 
---- Main crafting loop.
-local function main()
-  log("BeeOS Crafting Turtle started")
-  log("Waiting for items to craft...")
-
+--- Crafting loop coroutine.
+local function craftLoop()
   while true do
     local itemCount = countItems()
 
@@ -103,6 +114,63 @@ local function main()
 
     sleep(POLL_INTERVAL)
   end
+end
+
+--- Rednet listener coroutine.
+-- Listens for "stop" messages on the "beeos" protocol.
+local function rednetListener()
+  while true do
+    local senderId, message = rednet.receive(PROTOCOL)
+    if message == "stop" then
+      log("Stop signal received from computer #" .. tostring(senderId))
+      return
+    end
+  end
+end
+
+--- Terminal input coroutine.
+-- Accepts "stop", "quit", or "exit" typed at the turtle's terminal.
+local function terminalListener()
+  while true do
+    write("crafter> ")
+    local input = read()
+    if input then
+      local cmd = input:match("^%s*(%S+)")
+      if cmd == "stop" or cmd == "quit" or cmd == "exit" then
+        log("Stop command received from terminal")
+        return
+      elseif cmd == "status" then
+        log("Crafting turtle running. Items in inventory: " .. countItems())
+      elseif cmd == "help" then
+        print("Commands: status, stop, help")
+      elseif cmd and cmd ~= "" then
+        print("Unknown command. Type 'help'.")
+      end
+    end
+  end
+end
+
+--- Main entry point.
+local function main()
+  log("BeeOS Crafting Turtle started")
+
+  local modemOk = openModem()
+  if modemOk then
+    log("Rednet open (ID: " .. os.getComputerID() .. ")")
+  else
+    log("WARNING: No modem found, remote stop unavailable")
+  end
+
+  log("Waiting for items to craft...")
+  log("Type 'stop' to exit")
+
+  if modemOk then
+    parallel.waitForAny(craftLoop, rednetListener, terminalListener)
+  else
+    parallel.waitForAny(craftLoop, terminalListener)
+  end
+
+  log("BeeOS Crafting Turtle stopped.")
 end
 
 main()
