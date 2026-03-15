@@ -8,6 +8,8 @@ local state = require("lib.state")
 
 local sampler = {}
 
+local TURTLE_PROTOCOL = "beeos_turtle"
+
 -- Current state
 sampler.state = "idle"  -- idle, sampling, waiting_output
 sampler.activeSpecies = {}  -- { [machineNamea] = speciesName }
@@ -627,10 +629,8 @@ function sampler.requestTemplate(species, machines, config)
     return false
   end
 
-  -- Don't push if turtle still has items (avoids duplicate crafts)
-  local turtleItems = inventory.listItems(turtleName)
-  if #turtleItems > 0 then
-    tracker.addLog("Cannot craft template: turtle busy (has items)")
+  -- Don't push if we're already waiting for a craft
+  if sampler.pendingTemplate then
     return false
   end
 
@@ -641,10 +641,6 @@ function sampler.requestTemplate(species, machines, config)
   if movedBlank > 0 and movedSample > 0 then
     sampler.pendingTemplate = species
     tracker.addLog("Crafting template: " .. species)
-    -- Wait for turtle to craft (it polls its own inventory),
-    -- then collect the result so we're ready for the next craft
-    sleep(2)
-    sampler.collectFromTurtle(config, machines)
     return true
   end
 
@@ -678,43 +674,6 @@ function sampler.findTurtle(config, machines)
   return nil
 end
 
---- Collect crafted templates from the turtle's inventory.
--- The turtle crafts items and leaves results in inventory.
--- The computer pulls them out to the template output chest.
--- Learns nbtHash → species mapping for template identification.
--- @param config BeeOS config
--- @param machines Optional table from network.scan()
-function sampler.collectFromTurtle(config, machines)
-  local turtleName = sampler.findTurtle(config, machines)
-  if not turtleName then return end
-
-  if not inventory.first(config.chests.templateOutput) then
-    tracker.addLog("Cannot collect template: no templateOutput configured")
-    return
-  end
-
-  local items = inventory.listItems(turtleName)
-  for _, item in ipairs(items) do
-    -- Learn nbtHash before moving the item
-    local itemName = item.meta.name or ""
-    if itemName:find("gene_template") and sampler.pendingTemplate then
-      local nbtHash = item.meta.nbtHash
-      if nbtHash then
-        sampler.learnTemplateHash(nbtHash, sampler.pendingTemplate)
-      end
-    end
-
-    local moved = inventory.moveTo(turtleName, item.slot,
-      config.chests.templateOutput)
-    if moved > 0 then
-      local species = sampler.pendingTemplate or "unknown"
-      tracker.addLog("Collected template: " .. species)
-      sampler.pendingTemplate = nil
-    else
-      tracker.addLog("Failed to move template from turtle to output")
-    end
-  end
-end
 
 --- Record a template nbtHash → species mapping.
 -- @param nbtHash The nbtHash string from getItemMeta
@@ -735,6 +694,64 @@ function sampler.lookupTemplateHash(nbtHash)
   if not nbtHash then return nil end
   local map = state.load("template_hashes", {})
   return map[nbtHash]
+end
+
+--- Query the crafting turtle's status via rednet.
+-- @return "ready", "busy", or nil if no response
+function sampler.queryTurtle()
+  local id = rednet.lookup(TURTLE_PROTOCOL, "beeos_crafter")
+  if not id then return nil end
+  rednet.send(id, "status", TURTLE_PROTOCOL)
+  local _, reply = rednet.receive(TURTLE_PROTOCOL, 2)
+  return reply
+end
+
+--- Handle a craft_done message from the turtle.
+-- Scans the turtle's output chest for the crafted template,
+-- learns its nbtHash, and moves it to template storage.
+-- @param config BeeOS config
+function sampler.onCraftDone(config)
+  if not sampler.pendingTemplate then return end
+
+  local outputChest = config.turtle.outputChest
+  if not outputChest then
+    tracker.addLog("Cannot collect template: no turtle outputChest")
+    return
+  end
+
+  local items = inventory.listItems(outputChest)
+  for _, item in ipairs(items) do
+    local itemName = item.meta.name or ""
+    if itemName:find("gene_template") and item.meta.damage ~= 0 then
+      local nbtHash = item.meta.nbtHash
+      if nbtHash then
+        local known = state.load("template_hashes", {})
+        if not known[nbtHash] then
+          sampler.learnTemplateHash(nbtHash, sampler.pendingTemplate)
+        end
+      end
+      -- Move to template storage
+      local dest = config.chests.templateOutput
+      if inventory.first(dest) then
+        inventory.moveTo(outputChest, item.slot, dest)
+      end
+      tracker.addLog("Collected template: " .. sampler.pendingTemplate)
+      sampler.pendingTemplate = nil
+      return
+    end
+  end
+end
+
+--- Coroutine that listens for craft_done messages from the turtle.
+-- Run this via parallel alongside other loops.
+-- @param config BeeOS config
+function sampler.turtleListener(config)
+  while true do
+    local _, message = rednet.receive(TURTLE_PROTOCOL)
+    if message == "craft_done" then
+      sampler.onCraftDone(config)
+    end
+  end
 end
 
 return sampler

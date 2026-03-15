@@ -106,7 +106,8 @@ config.display = {
 
 -- === Crafting Turtle ===
 config.turtle = {
-  name = nil,  -- Peripheral name of crafting turtle on network, nil = auto-detect
+  name = nil,          -- Peripheral name of crafting turtle on network, nil = auto-detect
+  outputChest = nil,   -- Chest in front of turtle where crafted templates land
 }
 
 return config

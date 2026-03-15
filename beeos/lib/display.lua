@@ -48,6 +48,7 @@ local CONFIG_ROLES = {
   { key = "chests.traitTemplates",    label = "Trait Templates",  multi = true },
   { key = "chests.discoveryStaging",  label = "Disco Staging",    multi = true },
   { key = "turtle.name",             label = "Craft Turtle",     multi = false },
+  { key = "turtle.outputChest",     label = "Turtle Output",    multi = false },
 }
 
 --- Initialize the display.
@@ -650,8 +651,8 @@ local function scanPeripherals(roleKey)
   local results = {}
   for _, name in ipairs(peripheral.getNames()) do
     local pType = peripheral.getType(name)
-    if roleKey:find("^chests%.") then
-      -- For chest roles, show anything with an inventory (has .size())
+    if roleKey:find("^chests%.") or roleKey == "turtle.outputChest" then
+      -- For chest/inventory roles, show anything with .size()
       local p = peripheral.wrap(name)
       if p and p.size then
         results[#results + 1] = name

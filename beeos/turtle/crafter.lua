@@ -2,12 +2,15 @@
 -- Runs on a crafting turtle connected to the wired network
 -- via an adjacent Wired Modem Full Block.
 --
--- The turtle is a dumb crafter: it monitors its inventory for items,
--- arranges them in the crafting grid, and crafts. Results stay in
--- inventory for the computer to pull out via the network.
+-- The turtle crafts items and drops results into a chest in front.
+-- Communicates with the main BeeOS computer via rednet:
+--   turtle -> computer: "craft_done" after dropping result
+--   computer -> turtle: "status" query, turtle replies "ready"/"busy"
 
-local POLL_INTERVAL = 2  -- seconds
-local PROTOCOL = "beeos"
+local POLL_INTERVAL = 1  -- seconds
+local PROTOCOL = "beeos_turtle"
+
+local busy = false
 
 local function log(msg)
   local time = textutils.formatTime(os.time(), true)
@@ -86,12 +89,23 @@ local function arrangeCraft(slotA, slotB)
   end
 end
 
+--- Drop all items into the chest in front.
+local function dropAll()
+  for slot = 1, 16 do
+    if turtle.getItemCount(slot) > 0 then
+      turtle.select(slot)
+      turtle.drop()
+    end
+  end
+end
+
 --- Crafting loop coroutine.
 local function craftLoop()
   while true do
     local itemCount = countItems()
 
     if itemCount >= 2 then
+      busy = true
       -- Look for blank template + gene sample combo
       local templateSlot = findItem("gene_template")
       local sampleSlot = findItem("gene_sample")
@@ -104,12 +118,23 @@ local function craftLoop()
         local ok = turtle.craft(1)
 
         if ok then
-          log("Template crafted! Waiting for computer to collect...")
+          log("Template crafted, dropping into chest...")
+          dropAll()
+          busy = false
+          rednet.broadcast("craft_done", PROTOCOL)
+          log("Notified computer: craft_done")
         else
-          log("Craft failed! Check recipe.")
+          log("Craft failed! Dropping items back...")
+          dropAll()
+          busy = false
+          rednet.broadcast("craft_failed", PROTOCOL)
         end
+      else
+        -- Items present but not a valid combo, drop them back
+        log("Invalid items in inventory, dropping...")
+        dropAll()
+        busy = false
       end
-      -- Items stay in inventory; computer pulls them out via network
     end
 
     sleep(POLL_INTERVAL)
@@ -117,19 +142,21 @@ local function craftLoop()
 end
 
 --- Rednet listener coroutine.
--- Listens for "stop" messages on the "beeos" protocol.
+-- Handles "stop" and "status" messages.
 local function rednetListener()
   while true do
     local senderId, message = rednet.receive(PROTOCOL)
     if message == "stop" then
-      log("Stop signal received from computer #" .. tostring(senderId))
+      log("Stop signal from computer #" .. tostring(senderId))
       return
+    elseif message == "status" then
+      local state = busy and "busy" or "ready"
+      rednet.send(senderId, state, PROTOCOL)
     end
   end
 end
 
 --- Terminal input coroutine.
--- Accepts "stop", "quit", or "exit" typed at the turtle's terminal.
 local function terminalListener()
   while true do
     write("crafter> ")
@@ -140,7 +167,8 @@ local function terminalListener()
         log("Stop command received from terminal")
         return
       elseif cmd == "status" then
-        log("Crafting turtle running. Items in inventory: " .. countItems())
+        local state = busy and "busy" or "ready"
+        log("Status: " .. state .. ", items: " .. countItems())
       elseif cmd == "help" then
         print("Commands: status, stop, help")
       elseif cmd and cmd ~= "" then
@@ -150,25 +178,37 @@ local function terminalListener()
   end
 end
 
+--- Check for an inventory in front of the turtle.
+-- @return boolean
+local function hasOutputChest()
+  local front = peripheral.wrap("front")
+  return front ~= nil and front.size ~= nil
+end
+
 --- Main entry point.
 local function main()
   log("BeeOS Crafting Turtle started")
 
+  if not hasOutputChest() then
+    log("ERROR: No inventory found in front of turtle!")
+    log("Place a chest in front of the turtle for template output.")
+    return
+  end
+  log("Output chest detected")
+
   local modemOk = openModem()
   if modemOk then
     log("Rednet open (ID: " .. os.getComputerID() .. ")")
+    rednet.host(PROTOCOL, "beeos_crafter")
   else
-    log("WARNING: No modem found, remote stop unavailable")
+    log("ERROR: No modem found, cannot communicate with computer")
+    return
   end
 
   log("Waiting for items to craft...")
   log("Type 'stop' to exit")
 
-  if modemOk then
-    parallel.waitForAny(craftLoop, rednetListener, terminalListener)
-  else
-    parallel.waitForAny(craftLoop, terminalListener)
-  end
+  parallel.waitForAny(craftLoop, rednetListener, terminalListener)
 
   log("BeeOS Crafting Turtle stopped.")
 end

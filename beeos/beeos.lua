@@ -189,7 +189,6 @@ local function machineCollectorLoop()
     if config.layers.sampler then
       pcall(sampler.collectTransposerOutput, machines, config)
       pcall(sampler.collectOutput, machines, config)
-      pcall(sampler.collectFromTurtle, config, machines)
     end
     sleep(0.5)
   end
@@ -256,9 +255,6 @@ local function samplerLoop()
         discovery.needs = {}
       end
 
-      -- Collect finished templates before starting new crafts
-      pcall(sampler.collectFromTurtle, config, machines)
-
       -- Template crafting: one craft per loop (single turtle)
       -- Discovery needs first, then background
       local crafted = false
@@ -290,9 +286,6 @@ local function samplerLoop()
           end
         end
       end
-
-      -- Collect again in case turtle finished quickly
-      pcall(sampler.collectFromTurtle, config, machines)
 
       -- Route drones to samplers (discovery-needed species first)
       local ok, err = pcall(sampler.processDrones, machines, config,
@@ -840,17 +833,12 @@ local function shutdown()
   -- Transposers: extract samples, blanks, labware
   pcall(sampler.extractTransposers, machines, config)
 
-  -- Turtle: collect crafted templates
-  pcall(sampler.collectFromTurtle, config, machines)
+  -- Turtle: collect any crafted templates from output chest
+  pcall(sampler.onCraftDone, config)
 
   -- Signal crafting turtle(s) to stop via rednet
   pcall(function()
-    for _, side in ipairs(rs.getSides()) do
-      if peripheral.getType(side) == "modem" and not rednet.isOpen(side) then
-        rednet.open(side)
-      end
-    end
-    rednet.broadcast("stop", "beeos")
+    rednet.broadcast("stop", "beeos_turtle")
     tracker.addLog("Sent stop signal to turtle(s)")
   end)
 
@@ -913,7 +901,27 @@ local function main()
   end
   term.setTextColor(colors.white)
 
-  -- 4. Init display with fresh data
+  -- 4. Open rednet for turtle communication
+  write("  Rednet... ")
+  local modemOpened = false
+  for _, side in ipairs(rs.getSides()) do
+    if peripheral.getType(side) == "modem"
+        and not rednet.isOpen(side) then
+      rednet.open(side)
+      modemOpened = true
+    end
+  end
+  if modemOpened then
+    local turtleStatus = sampler.queryTurtle()
+    term.setTextColor(colors.lime)
+    print("open (turtle: " .. (turtleStatus or "not found") .. ")")
+  else
+    term.setTextColor(colors.lightGray)
+    print("no modem")
+  end
+  term.setTextColor(colors.white)
+
+  -- 5. Init display with fresh data
   write("  Display init... ")
   display.init(config)
   display.machines = machines
@@ -929,6 +937,10 @@ local function main()
   print()
 
   -- Run all loops in parallel
+  local function turtleListenerLoop()
+    sampler.turtleListener(config)
+  end
+
   parallel.waitForAny(
     trackerLoop,
     apiaryLoop,
@@ -941,7 +953,8 @@ local function main()
     traitExportLoop,
     displayLoop,
     touchLoop,
-    terminalLoop
+    terminalLoop,
+    turtleListenerLoop
   )
 
   -- Graceful shutdown: extract items from machines
