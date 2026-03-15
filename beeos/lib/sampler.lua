@@ -717,38 +717,50 @@ function sampler.queryTurtle()
   return reply
 end
 
---- Handle a craft_done message from the turtle.
--- Scans the turtle's output chest for the crafted template,
--- learns its nbtHash, and moves it to template storage.
+--- Collect crafted templates from the turtle's output chest.
+-- Always empties the chest. Learns nbtHash if pendingTemplate is set.
 -- @param config BeeOS config
 function sampler.onCraftDone(config)
-  if not sampler.pendingTemplate then return end
-
   local outputChest = config.turtle.outputChest
-  if not outputChest then
-    tracker.addLog("Cannot collect template: no turtle outputChest")
-    return
-  end
+  if not outputChest then return end
 
   local items = inventory.listItems(outputChest)
   for _, item in ipairs(items) do
     local itemName = item.meta.name or ""
     if itemName:find("gene_template") and item.meta.damage ~= 0 then
-      local nbtHash = item.meta.nbtHash
-      if nbtHash then
-        local known = state.load("template_hashes", {})
-        if not known[nbtHash] then
-          sampler.learnTemplateHash(nbtHash, sampler.pendingTemplate)
+      -- Learn hash if we know which species this is
+      if sampler.pendingTemplate then
+        local nbtHash = item.meta.nbtHash
+        if nbtHash then
+          local known = state.load("template_hashes", {})
+          if not known[nbtHash] then
+            sampler.learnTemplateHash(nbtHash,
+              sampler.pendingTemplate)
+          end
         end
       end
+
       -- Move to template storage
+      local dest = config.chests.templateOutput
+      local moved = 0
+      if inventory.first(dest) then
+        moved = inventory.moveTo(outputChest, item.slot, dest)
+      end
+
+      local species = sampler.pendingTemplate or "unknown"
+      if moved > 0 then
+        tracker.addLog("Collected template: " .. species)
+      else
+        tracker.addLog("Failed to move template: " .. species
+          .. " (check templateOutput chest)")
+      end
+      sampler.pendingTemplate = nil
+    else
+      -- Non-template item in output chest — move it out too
       local dest = config.chests.templateOutput
       if inventory.first(dest) then
         inventory.moveTo(outputChest, item.slot, dest)
       end
-      tracker.addLog("Collected template: " .. sampler.pendingTemplate)
-      sampler.pendingTemplate = nil
-      return
     end
   end
 end
