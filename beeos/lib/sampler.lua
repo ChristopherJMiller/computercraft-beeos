@@ -386,7 +386,17 @@ local function processTransposerOutput(tName, tPeri, config)
   end
 
   -- If we're tracking this transposer, check if species is now fully stocked
-  if not species then return end
+  if not species then
+    -- Defensive: clear stranded blanks from untracked transposers
+    local staleBlank = tPeri.getItemMeta
+      and tPeri.getItemMeta(TRANSPOSER_BLANK)
+    if staleBlank then
+      if inventory.first(config.chests.supplyInput) then
+        inventory.moveTo(tName, TRANSPOSER_BLANK, config.chests.supplyInput)
+      end
+    end
+    return
+  end
 
   local catalogEntry = tracker.catalog[species]
   local sampleCount = catalogEntry and catalogEntry.samples or 0
@@ -398,6 +408,12 @@ local function processTransposerOutput(tName, tPeri, config)
     if sourceMeta then
       inventory.moveTo(tName, TRANSPOSER_SOURCE, config.chests.sampleStorage)
       tracker.addLog("Transposer done: " .. species .. " fully stocked")
+    end
+    -- Return any loaded blank that won't be needed (prevents stranding)
+    local staleBlank = tPeri.getItemMeta
+      and tPeri.getItemMeta(TRANSPOSER_BLANK)
+    if staleBlank then
+      inventory.moveTo(tName, TRANSPOSER_BLANK, config.chests.supplyInput)
     end
     sampler.activeTransposer[tName] = nil
   else
@@ -634,7 +650,10 @@ function sampler.pollActive(machines, config, duration)
     for samplerName in pairs(sampler.activeSpecies) do
       local p = peripheral.wrap(samplerName)
       if p then
-        pcall(sampler.collectFromSampler, samplerName, p, config)
+        local ok, err = pcall(sampler.collectFromSampler, samplerName, p, config)
+        if not ok then
+          tracker.addLog("Sampler poll error: " .. tostring(err))
+        end
       end
     end
 
@@ -642,7 +661,10 @@ function sampler.pollActive(machines, config, duration)
     for tName in pairs(sampler.activeTransposer) do
       local p = peripheral.wrap(tName)
       if p then
-        pcall(processTransposerOutput, tName, p, config)
+        local ok, err = pcall(processTransposerOutput, tName, p, config)
+        if not ok then
+          tracker.addLog("Transposer poll error: " .. tostring(err))
+        end
       end
     end
 
