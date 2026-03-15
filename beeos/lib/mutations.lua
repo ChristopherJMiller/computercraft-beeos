@@ -284,34 +284,46 @@ function mutations.findPath(targetSpecies, knownSpecies)
   return nil  -- Unreachable
 end
 
+--- Score how ready a single parent species is for breeding.
+-- @param species Parent species name
+-- @param catalog Tracker catalog
+-- @param thresholds Config thresholds (optional, for drone minimum)
+-- @return Score: 4=template, 3=sample, 2=enough drones, 1=princess+drones, 0=drones only, -1=nothing
+local function speciesReadiness(species, catalog, thresholds)
+  local data = catalog[species]
+  if not data then return -1 end
+  if data.templates >= 1 then return 4 end
+  if data.samples >= 1 then return 3 end
+  local minDrones = thresholds and thresholds.minDronesPerSpecies or 2
+  if data.drones > minDrones then return 2 end
+  if (data.princesses >= 1 or data.queens >= 1) and data.drones >= 1 then return 1 end
+  if data.drones >= 1 then return 0 end
+  return -1
+end
+
 --- Score how ready a mutation's parents are for breeding.
--- Higher score = parents have more infrastructure (templates > samples > nothing).
+-- Sum of both parents' readiness scores.
 -- @param mut Mutation step with parent1 and parent2
 -- @param catalog Tracker catalog (optional)
--- @return Readiness score (0-4)
-local function parentReadiness(mut, catalog)
+-- @param thresholds Config thresholds (optional)
+-- @return Combined readiness score (-2 to 8)
+local function parentReadiness(mut, catalog, thresholds)
   if not catalog then return 0 end
-  local score = 0
-  for _, p in ipairs({ mut.parent1, mut.parent2 }) do
-    local data = catalog[p]
-    if data and data.templates >= 1 then
-      score = score + 2
-    elseif data and data.samples >= 1 then
-      score = score + 1
-    end
-  end
-  return score
+  return speciesReadiness(mut.parent1, catalog, thresholds)
+    + speciesReadiness(mut.parent2, catalog, thresholds)
 end
 
 --- Get the next best species to discover via auto-discovery.
 -- Picks the undiscovered species closest (fewest steps) to known species.
--- Prefers targets whose parents have templates/samples ready.
+-- Prefers targets whose parents are most ready (have templates > samples > drones).
 -- @param knownSpecies Set of known species { [name] = true }
 -- @param skipSpecies Set of species to skip { [name] = true }
 -- @param prioritySpecies Ordered list of priority species names
 -- @param catalog Tracker catalog for readiness scoring (optional)
+-- @param thresholds Config thresholds for drone minimums (optional)
 -- @return species name, mutation step table, or nil
-function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies, catalog)
+function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies,
+    catalog, thresholds)
   skipSpecies = skipSpecies or {}
 
   -- Check priority species first (user-requested, skip readiness check)
@@ -351,31 +363,11 @@ function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies, cat
     return nil  -- Nothing reachable
   end
 
-  -- Filter to only candidates whose parents both have templates
-  if catalog then
-    local ready = {}
-    for _, c in ipairs(candidates) do
-      if parentReadiness(c.mutation, catalog) >= 4 then
-        ready[#ready + 1] = c
-      end
-    end
-    if #ready > 0 then
-      candidates = ready
-    else
-      -- Nothing ready — return best unready candidate as 3rd value
-      -- so discovery can report what's blocking
-      table.sort(candidates, function(a, b)
-        local ra = parentReadiness(a.mutation, catalog)
-        local rb = parentReadiness(b.mutation, catalog)
-        if ra ~= rb then return ra > rb end
-        return (a.mutation.chance or 0) > (b.mutation.chance or 0)
-      end)
-      return nil, nil, candidates[1]
-    end
-  end
-
-  -- Sort by mutation chance (highest first)
+  -- Sort by parent readiness first, then mutation chance within same tier
   table.sort(candidates, function(a, b)
+    local ra = parentReadiness(a.mutation, catalog, thresholds)
+    local rb = parentReadiness(b.mutation, catalog, thresholds)
+    if ra ~= rb then return ra > rb end
     return (a.mutation.chance or 0) > (b.mutation.chance or 0)
   end)
 
@@ -388,8 +380,10 @@ end
 -- @param skipSpecies Set of species to skip { [name] = true }
 -- @param limit Max candidates to return (default 5)
 -- @param catalog Tracker catalog for readiness scoring (optional)
+-- @param thresholds Config thresholds for drone minimums (optional)
 -- @return Array of { species=, mutation= } sorted by readiness then chance
-function mutations.getCandidateList(knownSpecies, skipSpecies, limit, catalog)
+function mutations.getCandidateList(knownSpecies, skipSpecies, limit, catalog,
+    thresholds)
   skipSpecies = skipSpecies or {}
   limit = limit or 5
 
@@ -409,8 +403,8 @@ function mutations.getCandidateList(knownSpecies, skipSpecies, limit, catalog)
   end
 
   table.sort(candidates, function(a, b)
-    local ra = parentReadiness(a.mutation, catalog)
-    local rb = parentReadiness(b.mutation, catalog)
+    local ra = parentReadiness(a.mutation, catalog, thresholds)
+    local rb = parentReadiness(b.mutation, catalog, thresholds)
     if ra ~= rb then return ra > rb end
     return (a.mutation.chance or 0) > (b.mutation.chance or 0)
   end)

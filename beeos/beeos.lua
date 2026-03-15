@@ -199,22 +199,31 @@ end
 -- Routes drones, starts duplication, requests templates.
 -- Machine collection is handled by machineCollectorLoop.
 -- Discovery prerequisites are prioritized over background maintenance.
+local blockedParentsLogged = {}  -- avoid spamming blocked messages
+
 local function samplerLoop()
   while running do
     if config.layers.sampler then
       -- Determine what discovery needs so we can prioritize it
-      local discoveryNeeds = {}  -- { [species] = "template"|"sample" }
+      local discoveryNeeds = {}  -- { [species] = "template"|"sample"|"breed"|"blocked" }
       if config.layers.discovery then
-        -- Check mutation parents for missing samples/templates
+        -- Check mutation parents for missing prerequisites
         if discovery.currentMutation then
           local mut = discovery.currentMutation
+          local thresholds = config.thresholds
           for _, parent in ipairs({ mut.parent1, mut.parent2 }) do
             local data = tracker.catalog[parent]
-            if data then
-              if data.samples == 0 then
-                discoveryNeeds[parent] = "sample"
-              elseif data.templates == 0 then
+            if data and data.templates == 0 then
+              if data.samples >= 1 then
                 discoveryNeeds[parent] = "template"
+              elseif data.drones > thresholds.minDronesPerSpecies then
+                discoveryNeeds[parent] = "sample"
+              elseif (data.princesses >= 1 or data.queens >= 1)
+                  and data.drones >= 1 then
+                discoveryNeeds[parent] = "breed"
+                discovery.addBootstrap(parent)
+              else
+                discoveryNeeds[parent] = "blocked"
               end
             end
           end
@@ -222,8 +231,24 @@ local function samplerLoop()
         -- Also check idle reason for explicit template needs
         if discovery.idleReason then
           local needed = discovery.idleReason:match("No template: (.+)")
-          if needed then
+          if needed and not discoveryNeeds[needed] then
             discoveryNeeds[needed] = "template"
+          end
+        end
+
+        -- Log blocked parents (once per species)
+        for species, need in pairs(discoveryNeeds) do
+          if need == "blocked" and not blockedParentsLogged[species] then
+            blockedParentsLogged[species] = true
+            tracker.addLog("BLOCKED: Need " .. species
+              .. " princess+drone — acquire manually")
+          end
+        end
+        -- Store for display
+        discovery.blockedParents = {}
+        for species, need in pairs(discoveryNeeds) do
+          if need == "blocked" then
+            discovery.blockedParents[species] = true
           end
         end
       end

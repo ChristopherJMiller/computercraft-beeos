@@ -563,6 +563,19 @@ local function drawDiscovery(mon, w, h, startY)
     end
   end
 
+  -- Blocked parents requiring user action
+  local blocked = discovery.blockedParents or {}
+  if next(blocked) and y + 2 <= h then
+    y = y + 1
+    drawText(mon, 1, y, "NEED:", colors.red, colors.black)
+    y = y + 1
+    for species in pairs(blocked) do
+      if y > h - 3 then break end
+      drawText(mon, 2, y, species .. " princess+drone", colors.red, colors.black)
+      y = y + 1
+    end
+  end
+
   -- Progress bar
   if progress.total > 0 then
     y = y + 1
