@@ -15,9 +15,11 @@ sampler.activeTransposer = {}  -- { [machineName] = speciesName }
 sampler.pendingTemplate = nil  -- species name of template being crafted
 
 --- Process drones in the buffer: route to sampler or surplus.
+-- Discovery-needed species are routed first when prioritySpecies is provided.
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
-function sampler.processDrones(machines, config)
+-- @param prioritySpecies Optional set { [species] = true } to route first
+function sampler.processDrones(machines, config, prioritySpecies)
   if not inventory.first(config.chests.droneBuffer) then return end
 
   local thresholds = config.thresholds
@@ -26,33 +28,73 @@ function sampler.processDrones(machines, config)
     return (meta.name or ""):find("bee_drone") ~= nil
   end)
 
-  for _, match in ipairs(allDrones) do
-    local bufPeri = peripheral.wrap(match.source)
-    if bufPeri and bee.isDrone(bufPeri, match.slot) then
-      local info = bee.inspect(bufPeri, match.slot)
+  -- Sort priority species to front if provided
+  if prioritySpecies and next(prioritySpecies) then
+    -- Inspect all drones to get species, then sort
+    local inspected = {}
+    for _, match in ipairs(allDrones) do
+      local bufPeri = peripheral.wrap(match.source)
+      local info = bufPeri and bee.isDrone(bufPeri, match.slot)
+        and bee.inspect(bufPeri, match.slot)
+      inspected[#inspected + 1] = { match = match, info = info }
+    end
+    table.sort(inspected, function(a, b)
+      local aPri = a.info and prioritySpecies[a.info.species] or false
+      local bPri = b.info and prioritySpecies[b.info.species] or false
+      if aPri ~= bPri then return aPri end
+      return false  -- stable for equal priority
+    end)
+    -- Process sorted list (already inspected)
+    for _, entry in ipairs(inspected) do
+      local info = entry.info
       if info and info.species then
         local catalogEntry = tracker.catalog[info.species]
         local sampleCount = catalogEntry and catalogEntry.samples or 0
         local droneCount = catalogEntry and catalogEntry.drones or 0
+        local match = entry.match
 
         if sampleCount == 0
             and droneCount > thresholds.minDronesPerSpecies then
-          -- No samples yet — must use sampler to get first sample from bee
           sampler.sendToSampler(match.source, match.slot, machines, config)
         elseif sampleCount < thresholds.minSamplesPerSpecies
             and sampleCount >= 1 and droneCount > thresholds.minDronesPerSpecies
             and not sampler.hasTransposer(machines, config) then
-          -- Need more samples, have no transposer — fall back to sampler
           sampler.sendToSampler(match.source, match.slot, machines, config)
         elseif droneCount > thresholds.maxDronesPerSpecies then
-          -- Too many drones — route to surplus/DNA extractor
           local exportChests = inventory.getExportChests(config)
           if inventory.first(exportChests) then
             inventory.moveTo(match.source, match.slot, exportChests)
             tracker.addLog("Surplus drone: " .. info.species .. " -> DNA")
           end
         end
-        -- Otherwise leave in buffer (within acceptable range)
+      end
+    end
+  else
+    -- No priority sorting needed
+    for _, match in ipairs(allDrones) do
+      local bufPeri = peripheral.wrap(match.source)
+      if bufPeri and bee.isDrone(bufPeri, match.slot) then
+        local info = bee.inspect(bufPeri, match.slot)
+        if info and info.species then
+          local catalogEntry = tracker.catalog[info.species]
+          local sampleCount = catalogEntry and catalogEntry.samples or 0
+          local droneCount = catalogEntry and catalogEntry.drones or 0
+
+          if sampleCount == 0
+              and droneCount > thresholds.minDronesPerSpecies then
+            sampler.sendToSampler(match.source, match.slot, machines, config)
+          elseif sampleCount < thresholds.minSamplesPerSpecies
+              and sampleCount >= 1 and droneCount > thresholds.minDronesPerSpecies
+              and not sampler.hasTransposer(machines, config) then
+            sampler.sendToSampler(match.source, match.slot, machines, config)
+          elseif droneCount > thresholds.maxDronesPerSpecies then
+            local exportChests = inventory.getExportChests(config)
+            if inventory.first(exportChests) then
+              inventory.moveTo(match.source, match.slot, exportChests)
+              tracker.addLog("Surplus drone: " .. info.species .. " -> DNA")
+            end
+          end
+        end
       end
     end
   end

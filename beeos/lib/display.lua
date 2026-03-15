@@ -222,12 +222,17 @@ end
 local function drawSpecies(mon, w, h, startY)
   local species = tracker.sortedSpecies()
 
-  -- Re-sort: active species (on a machine) float to top
+  -- Re-sort: discovery target first, then machine-active, then normal
   table.sort(species, function(a, b)
-    local aActive = getActivityIndicator(a.name) ~= nil
-    local bActive = getActivityIndicator(b.name) ~= nil
+    local aInd = getActivityIndicator(a.name)
+    local bInd = getActivityIndicator(b.name)
+    local aDisco = aInd == "D"
+    local bDisco = bInd == "D"
+    if aDisco ~= bDisco then return aDisco end
+    local aActive = aInd ~= nil
+    local bActive = bInd ~= nil
     if aActive ~= bActive then return aActive end
-    -- Within same active/inactive group, keep original color+alpha order
+    -- Within same group, keep original color+alpha order
     local colorOrder = { [colors.red] = 1, [colors.orange] = 2, [colors.lime] = 3, [colors.gray] = 4 }
     local ao = colorOrder[a.color] or 5
     local bo = colorOrder[b.color] or 5

@@ -198,38 +198,82 @@ end
 --- Layer 2: Sample & Template Manager loop (decision-only)
 -- Routes drones, starts duplication, requests templates.
 -- Machine collection is handled by machineCollectorLoop.
+-- Discovery prerequisites are prioritized over background maintenance.
 local function samplerLoop()
   while running do
     if config.layers.sampler then
-      local ok, err = pcall(sampler.processDrones, machines, config)
+      -- Determine what discovery needs so we can prioritize it
+      local discoveryNeeds = {}  -- { [species] = "template"|"sample" }
+      if config.layers.discovery then
+        -- Check mutation parents for missing templates/samples
+        if discovery.currentMutation then
+          local mut = discovery.currentMutation
+          for _, parent in ipairs({ mut.parent1, mut.parent2 }) do
+            local data = tracker.catalog[parent]
+            if data then
+              if data.templates == 0 and data.samples >= 1 then
+                discoveryNeeds[parent] = "template"
+              end
+            end
+          end
+        end
+        -- Also check idle reason for explicit template needs
+        if discovery.idleReason then
+          local needed = discovery.idleReason:match("No template: (.+)")
+          if needed then
+            discoveryNeeds[needed] = "template"
+          end
+        end
+      end
+
+      -- Route drones to samplers (discovery-needed species first)
+      local ok, err = pcall(sampler.processDrones, machines, config,
+        discoveryNeeds)
       if not ok then
         tracker.addLog("Sampler error: " .. tostring(err))
       end
 
-      -- Duplicate samples via transposer for species below threshold
-      if sampler.hasTransposer(machines, config) then
-        local bestSpecies, bestCount = nil, math.huge
-        for species, data in pairs(tracker.catalog) do
-          if data.samples >= 1
-              and data.samples < (config.thresholds.minSamplesPerSpecies or 3) then
-            if data.samples < bestCount then
-              bestSpecies = species
-              bestCount = data.samples
-            end
-          end
-        end
-        if bestSpecies then
-          ok, err = pcall(sampler.duplicateSample, bestSpecies, machines, config)
-          if not ok then
-            tracker.addLog("Transposer error: " .. tostring(err))
-          end
+      -- Template crafting: discovery needs first, then background
+      for species in pairs(discoveryNeeds) do
+        local data = tracker.catalog[species]
+        if data and data.samples >= 1 and data.templates == 0 then
+          pcall(sampler.requestTemplate, species, machines, config)
         end
       end
-
-      -- Check if any species need templates
       for species, data in pairs(tracker.catalog) do
         if data.samples >= 1 and data.templates == 0 then
           pcall(sampler.requestTemplate, species, machines, config)
+        end
+      end
+
+      -- Batch transposer loading: fill ALL idle transposers
+      if sampler.hasTransposer(machines, config) then
+        local threshold = config.thresholds.minSamplesPerSpecies or 3
+        local needsDup = {}
+        for species, data in pairs(tracker.catalog) do
+          if data.samples >= 1 and data.samples < threshold then
+            needsDup[#needsDup + 1] = {
+              species = species, count = data.samples,
+            }
+          end
+        end
+        table.sort(needsDup, function(a, b) return a.count < b.count end)
+
+        -- Boost discovery-needed species to front
+        for i, entry in ipairs(needsDup) do
+          if discoveryNeeds[entry.species] then
+            table.remove(needsDup, i)
+            table.insert(needsDup, 1, entry)
+            break
+          end
+        end
+
+        -- Load each into an idle transposer (duplicateSample skips busy ones)
+        for _, entry in ipairs(needsDup) do
+          ok, err = pcall(sampler.duplicateSample, entry.species, machines, config)
+          if not ok then
+            tracker.addLog("Transposer error: " .. tostring(err))
+          end
         end
       end
     end
