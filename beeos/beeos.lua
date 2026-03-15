@@ -10,6 +10,7 @@ local discovery = require("lib.discovery")
 local surplus = require("lib.surplus")
 local mutations = require("lib.mutations")
 local imprinter = require("lib.imprinter")
+local analyzer = require("lib.analyzer")
 local inventory = require("lib.inventory")
 local display = require("lib.display")
 local state = require("lib.state")
@@ -249,6 +250,19 @@ local function imprinterLoop()
       local ok, err = pcall(imprinter.tick, machines, config)
       if not ok then
         tracker.addLog("Imprinter error: " .. tostring(err))
+      end
+    end
+    sleep(config.timing.apiaryInterval)
+  end
+end
+
+--- Bee analysis loop
+local function analyzerLoop()
+  while running do
+    if config.layers.apiary then
+      local ok, err = pcall(analyzer.tick, machines, config)
+      if not ok then
+        tracker.addLog("Analyzer error: " .. tostring(err))
       end
     end
     sleep(config.timing.apiaryInterval)
@@ -647,6 +661,7 @@ local function main()
     samplerLoop,
     discoveryLoop,
     imprinterLoop,
+    analyzerLoop,
     surplusLoop,
     displayLoop,
     touchLoop,

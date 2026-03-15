@@ -213,6 +213,27 @@ local function drawSpecies(mon, w, h, startY)
     local stats = tracker.stats()
     drawText(mon, 1, y, string.format("Discovered: %d  Stocked: %d  Attention: %d",
       stats.discovered, stats.fullyStocked, stats.needsAttention), colors.lightGray, colors.black)
+    y = y + 1
+  end
+
+  -- Color key (only if enough vertical space)
+  if y <= h then
+    local x = 1
+    drawText(mon, x, y, "*", colors.lime, colors.black)
+    x = x + 1
+    drawText(mon, x, y, "Stocked ", colors.lightGray, colors.black)
+    x = x + 8
+    drawText(mon, x, y, "*", colors.orange)
+    x = x + 1
+    drawText(mon, x, y, "Low ", colors.lightGray)
+    x = x + 4
+    drawText(mon, x, y, "*", colors.red)
+    x = x + 1
+    drawText(mon, x, y, "Needs attn ", colors.lightGray)
+    x = x + 11
+    drawText(mon, x, y, "*", colors.gray)
+    x = x + 1
+    drawText(mon, x, y, "Undiscovered", colors.lightGray)
   end
 end
 

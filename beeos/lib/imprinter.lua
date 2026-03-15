@@ -134,7 +134,7 @@ function imprinter.tick(machines, config)
     local bufPeri = peripheral.wrap(match.source)
     if bufPeri then
       local info = bee.inspect(bufPeri, match.slot)
-      if info and imprinter.needsImprinting(info, config) then
+      if info and info.analyzed ~= false and imprinter.needsImprinting(info, config) then
         local traitName = imprinter.getMissingTrait(info, config)
         if not traitName then break end
 
