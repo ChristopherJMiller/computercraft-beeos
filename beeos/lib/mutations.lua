@@ -351,11 +351,31 @@ function mutations.getNextTarget(knownSpecies, skipSpecies, prioritySpecies, cat
     return nil  -- Nothing reachable
   end
 
-  -- Sort by parent readiness first, then mutation chance within same tier
+  -- Filter to only candidates whose parents both have templates
+  if catalog then
+    local ready = {}
+    for _, c in ipairs(candidates) do
+      if parentReadiness(c.mutation, catalog) >= 4 then
+        ready[#ready + 1] = c
+      end
+    end
+    if #ready > 0 then
+      candidates = ready
+    else
+      -- Nothing ready — return best unready candidate as 3rd value
+      -- so discovery can report what's blocking
+      table.sort(candidates, function(a, b)
+        local ra = parentReadiness(a.mutation, catalog)
+        local rb = parentReadiness(b.mutation, catalog)
+        if ra ~= rb then return ra > rb end
+        return (a.mutation.chance or 0) > (b.mutation.chance or 0)
+      end)
+      return nil, nil, candidates[1]
+    end
+  end
+
+  -- Sort by mutation chance (highest first)
   table.sort(candidates, function(a, b)
-    local ra = parentReadiness(a.mutation, catalog)
-    local rb = parentReadiness(b.mutation, catalog)
-    if ra ~= rb then return ra > rb end
     return (a.mutation.chance or 0) > (b.mutation.chance or 0)
   end)
 

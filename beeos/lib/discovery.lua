@@ -152,9 +152,24 @@ end
 
 --- Start the next discovery target.
 function discovery.startNext(machines, config)
-  local target, mutation = discovery.pickTarget(config)
+  local target, mutation, blocked = discovery.pickTarget(config)
   if not target then
-    goIdle("No reachable species")
+    if blocked then
+      -- Species are reachable but parents need templates/samples
+      local mut = blocked.mutation
+      local reason = "Waiting on parents: "
+      for _, p in ipairs({ mut.parent1, mut.parent2 }) do
+        local data = tracker.catalog[p]
+        if not data or data.templates == 0 then
+          reason = reason .. p .. " (needs template) "
+        end
+      end
+      -- Store blocked mutation so sampler can work on prerequisites
+      discovery.currentMutation = mut
+      goIdle(reason)
+    else
+      goIdle("No reachable species")
+    end
     return false
   end
 
