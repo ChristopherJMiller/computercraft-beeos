@@ -155,20 +155,24 @@ function sampler.collectOutput(machines, config)
 
   for samplerName, samplerPeri in pairs(samplers) do
     local size = samplerPeri.size and samplerPeri.size() or 0
+    local hasItems = false
     for slot = 1, size do
       local meta = samplerPeri.getItemMeta and samplerPeri.getItemMeta(slot)
       if meta then
         local itemName = meta.name or ""
+        local moved = false
         if itemName:find("gene_sample_blank") then
           -- Unused blank sample → return to supply
           if inventory.first(config.chests.supplyInput) then
             inventory.moveTo(samplerName, slot, config.chests.supplyInput)
+            moved = true
           end
         elseif itemName:find("gene_sample") then
           -- Completed gene sample → sample storage
           local displayName = meta.displayName or ""
-          local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
-          if moved > 0 then
+          local movedCount = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
+          if movedCount > 0 then
+            moved = true
             -- Check if this is a species sample (matches a known species or
             -- the species we're currently sampling on this machine)
             local isSpeciesSample = false
@@ -193,19 +197,31 @@ function sampler.collectOutput(machines, config)
           -- Spent drone returned by sampler → drone buffer
           if inventory.first(config.chests.droneBuffer) then
             inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
+            moved = true
           end
         elseif itemName:find("bee_") then
           -- Any other bee output → drone buffer
           if inventory.first(config.chests.droneBuffer) then
             inventory.moveTo(samplerName, slot, config.chests.droneBuffer)
+            moved = true
           end
         elseif itemName:find("waste") then
           -- Genetic waste → export
           local exportChests = inventory.getExportChests(config)
           if inventory.first(exportChests) then
             inventory.moveTo(samplerName, slot, exportChests)
+            moved = true
           end
         end
+        if not moved then hasItems = true end
+      end
+    end
+
+    -- Clear status if sampler is empty (all items collected or consumed)
+    if not hasItems and sampler.activeSpecies[samplerName] then
+      sampler.activeSpecies[samplerName] = nil
+      if not next(sampler.activeSpecies) then
+        sampler.state = "idle"
       end
     end
   end
