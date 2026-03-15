@@ -4,12 +4,14 @@
 local bee = require("lib.bee")
 local inventory = require("lib.inventory")
 local tracker = require("lib.tracker")
+local state = require("lib.state")
 
 local sampler = {}
 
 -- Current state
 sampler.state = "idle"  -- idle, sampling, waiting_output
 sampler.activeSpecies = {}  -- { [machineNamea] = speciesName }
+sampler.pendingTemplate = nil  -- species name of template being crafted
 
 --- Process drones in the buffer: route to sampler or surplus.
 -- @param machines Table from network.scan()
@@ -173,13 +175,10 @@ function sampler.collectOutput(machines, config)
           local movedCount = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
           if movedCount > 0 then
             moved = true
-            -- Check if this is a species sample (matches a known species or
-            -- the species we're currently sampling on this machine)
-            local isSpeciesSample = false
+            -- Check if this is a species sample
+            -- Format: "Bee Sample - Species: Forest"
+            local isSpeciesSample = displayName:find("Species:") ~= nil
             local currentSp = sampler.activeSpecies[samplerName]
-            if currentSp and displayName:find(currentSp, 1, true) then
-              isSpeciesSample = true
-            end
             if isSpeciesSample then
               tracker.addLog("Species sample: " .. currentSp .. " -> storage")
               sampler.activeSpecies[samplerName] = nil
@@ -242,7 +241,9 @@ function sampler.requestTemplate(species, machines, config)
 
   local sampleMatches = inventory.findAcross(config.chests.sampleStorage, function(meta)
     if not (meta.name or ""):find("gene_sample") then return false end
-    return (meta.displayName or ""):find(species) ~= nil
+    -- Match "Bee Sample - Species: <name>"
+    local sampleSpecies = (meta.displayName or ""):match("Species:%s*(.+)$")
+    return sampleSpecies == species
   end)
 
   if sampleMatches[1] then
@@ -290,6 +291,7 @@ function sampler.requestTemplate(species, machines, config)
 
   if movedBlank > 0 and movedSample > 0 then
     -- Turtle polls its inventory and crafts automatically
+    sampler.pendingTemplate = species
     tracker.addLog("Crafting template: " .. species)
     return true
   end
@@ -316,6 +318,7 @@ end
 --- Collect crafted templates from the turtle's inventory.
 -- The turtle crafts items and leaves results in inventory.
 -- The computer pulls them out to the template output chest.
+-- Learns nbtHash → species mapping for template identification.
 -- @param config BeeOS config
 function sampler.collectFromTurtle(config)
   local turtleName = sampler.findTurtle(config)
@@ -325,11 +328,43 @@ function sampler.collectFromTurtle(config)
 
   local items = inventory.listItems(turtleName)
   for _, item in ipairs(items) do
+    -- Learn nbtHash before moving the item
+    local itemName = item.meta.name or ""
+    if itemName:find("gene_template") and sampler.pendingTemplate then
+      local nbtHash = item.meta.nbtHash
+      if nbtHash then
+        sampler.learnTemplateHash(nbtHash, sampler.pendingTemplate)
+      end
+    end
+
     local moved = inventory.moveTo(turtleName, item.slot, config.chests.templateOutput)
     if moved > 0 then
-      tracker.addLog("Collected template from turtle")
+      local species = sampler.pendingTemplate or "unknown"
+      tracker.addLog("Collected template: " .. species)
+      sampler.pendingTemplate = nil
     end
   end
+end
+
+--- Record a template nbtHash → species mapping.
+-- @param nbtHash The nbtHash string from getItemMeta
+-- @param species The species name
+function sampler.learnTemplateHash(nbtHash, species)
+  local map = state.load("template_hashes", {})
+  if not map[nbtHash] then
+    map[nbtHash] = species
+    state.save("template_hashes", map)
+    tracker.addLog("Learned template hash: " .. species)
+  end
+end
+
+--- Look up a species from a template's nbtHash.
+-- @param nbtHash The nbtHash string
+-- @return species name or nil
+function sampler.lookupTemplateHash(nbtHash)
+  if not nbtHash then return nil end
+  local map = state.load("template_hashes", {})
+  return map[nbtHash]
 end
 
 return sampler

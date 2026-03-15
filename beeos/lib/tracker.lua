@@ -119,26 +119,22 @@ function tracker.scan(machines)
     local name = meta.name or ""
 
     if name:find("gene_sample") then
-      -- Gendustry format: "Bee Sample - Forest" or "Bee Sample - Fastest"
-      local sampleLabel = (meta.displayName or ""):match("-%s*(.+)$")
-        or (meta.displayName or ""):match(":%s*(.+)$")
-      if sampleLabel then
-        -- Only count samples for species we've seen as actual bees
-        -- (trait samples like "Fastest", "Cave Dwelling" are not species)
-        if catalog[sampleLabel] then
-          catalog[sampleLabel].samples =
-            catalog[sampleLabel].samples + (meta.count or 1)
-        end
+      -- Format: "Bee Sample - Species: Forest" or "Bee Sample - Speed: Fastest"
+      local displayName = meta.displayName or ""
+      -- Extract species name from "Species: <name>" pattern
+      local speciesName = displayName:match("Species:%s*(.+)$")
+      if speciesName and catalog[speciesName] then
+        catalog[speciesName].samples =
+          catalog[speciesName].samples + (meta.count or 1)
       end
 
     elseif name:find("gene_template") then
-      -- Extracting species from template display name
-      local templateSpecies = (meta.displayName or ""):match(":%s*(.+)$")
-      if templateSpecies then
-        if catalog[templateSpecies] then
-          catalog[templateSpecies].templates =
-            catalog[templateSpecies].templates + (meta.count or 1)
-        end
+      -- Templates have no species in displayName — use learned nbtHash mapping
+      local templateMap = state.load("template_hashes", {})
+      local templateSpecies = templateMap[meta.nbtHash]
+      if templateSpecies and catalog[templateSpecies] then
+        catalog[templateSpecies].templates =
+          catalog[templateSpecies].templates + (meta.count or 1)
       end
     end
   end

@@ -173,12 +173,15 @@ function discovery.startNext(machines, config)
 end
 
 --- Find a genetic template for a species in a given inventory.
+-- Uses nbtHash lookup (learned at craft time) to identify template species.
 -- @return slot number or nil
 function discovery.findTemplate(periName, peri, size, species)
+  local sampler = require("lib.sampler")
   for slot = 1, size do
     local meta = peri.getItemMeta and peri.getItemMeta(slot)
     if meta and (meta.name or ""):find("gene_template") then
-      if (meta.displayName or ""):find(species) then
+      local templateSpecies = sampler.lookupTemplateHash(meta.nbtHash)
+      if templateSpecies == species then
         return slot
       end
     end

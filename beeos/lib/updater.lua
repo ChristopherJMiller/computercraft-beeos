@@ -55,6 +55,7 @@ updater.FILES = {
   { path = "tools/inspect.lua", desc = "Bee inspector" },
   { path = "tools/slots.lua", desc = "Slot mapper" },
   { path = "tools/mutations_debug.lua", desc = "Mutation debugger" },
+  { path = "tools/learn.lua", desc = "Template hash learner" },
 }
 
 -- Turtle-only files
