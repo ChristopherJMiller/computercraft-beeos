@@ -23,6 +23,7 @@ updater.FILES = {
   { path = "lib/discovery.lua", desc = "Layer 3: Discovery" },
   { path = "lib/mutations.lua", desc = "Mutation graph" },
   { path = "lib/surplus.lua", desc = "Surplus manager" },
+  { path = "lib/trait_export.lua", desc = "Trait exporter" },
   { path = "lib/imprinter.lua", desc = "Trait imprinter" },
   { path = "lib/analyzer.lua", desc = "Bee analyzer" },
   { path = "lib/display.lua", desc = "Monitor display" },
