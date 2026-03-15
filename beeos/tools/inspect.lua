@@ -154,10 +154,54 @@ else
   dump(meta, 1)
 end
 
+-- Try NBT Peripheral for full NBT data
+local nbtData = nil
+if p.readNBT then
+  local ok, fullNBT = pcall(p.readNBT)
+  if ok and fullNBT then
+    -- Find the item in the Items list matching our slot
+    -- NBT Items list uses 0-indexed Slot field
+    local items = fullNBT.Items or fullNBT.items
+    if items then
+      for _, item in pairs(items) do
+        local nbtSlot = item.Slot or item.slot
+        if nbtSlot and nbtSlot == (slot - 1) then
+          nbtData = item
+          break
+        end
+      end
+    end
+
+    if nbtData then
+      print()
+      term.setTextColor(colors.yellow)
+      print("=== NBT DATA (slot " .. slot .. ") ===")
+      term.setTextColor(colors.white)
+      dump(nbtData, 1)
+    else
+      term.setTextColor(colors.lightGray)
+      print("\nNBT Peripheral: no item NBT found at slot " .. slot)
+      term.setTextColor(colors.white)
+    end
+  else
+    term.setTextColor(colors.lightGray)
+    print("\nNBT Peripheral: readNBT() failed")
+    term.setTextColor(colors.white)
+  end
+else
+  term.setTextColor(colors.lightGray)
+  print("\nNBT Peripheral: not available (no readNBT method)")
+  term.setTextColor(colors.white)
+end
+
 -- Also dump raw data to a file for offline analysis
 local filename = "inspect_dump_" .. periName:gsub("[:/]", "_") .. "_" .. slot .. ".txt"
 local f = fs.open(filename, "w")
 f.write(textutils.serialise(meta))
+if nbtData then
+  f.write("\n\n--- NBT DATA ---\n")
+  f.write(textutils.serialise(nbtData))
+end
 f.close()
 term.setTextColor(colors.lightGray)
 print("\nFull data saved to: " .. filename)
