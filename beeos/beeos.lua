@@ -370,7 +370,7 @@ local function terminalLoop()
 
     if cmd == "stop" or cmd == "quit" or cmd == "exit" then
       running = false
-      print("Shutting down...")
+      print("Shutting down (extracting machines)...")
 
     elseif cmd == "status" then
       local layerInfo = {
@@ -631,6 +631,45 @@ local function terminalLoop()
   end
 end
 
+--- Graceful shutdown: extract in-progress items from all machines.
+local function shutdown()
+  tracker.addLog("Shutdown: extracting machine contents")
+
+  -- Apiaries: extract output (princesses, drones, products)
+  for name, p in pairs(machines.apiary or {}) do
+    pcall(apiary.extractOutput, name, p, config)
+  end
+
+  -- Samplers: collect completed samples, return spent drones
+  pcall(sampler.collectOutput, machines, config)
+
+  -- Imprinters: collect imprinted bees, waste
+  local imprinters = {}
+  if config.machines.imprinters then
+    for _, name in ipairs(config.machines.imprinters) do
+      imprinters[name] = peripheral.wrap(name)
+    end
+  else
+    imprinters = machines.imprinter or {}
+  end
+  for impName, imp in pairs(imprinters) do
+    if imp then
+      pcall(imprinter.collectOutput, impName, imp, config)
+    end
+  end
+
+  -- Analyzers: collect analyzed bees
+  pcall(analyzer.tick, machines, config)
+
+  -- Mutatrons: collect mutation results
+  pcall(discovery.checkMutatron, machines, config)
+
+  -- Turtle: collect crafted templates
+  pcall(sampler.collectFromTurtle, config)
+
+  tracker.addLog("Shutdown: extraction complete")
+end
+
 --- Main entry point
 local function main()
   -- Load config overrides from persistent state
@@ -669,10 +708,23 @@ local function main()
     terminalLoop
   )
 
-  -- Cleanup
+  -- Graceful shutdown: extract items from machines
+  shutdown()
+
+  -- Save state (includes shutdown log entries)
   tracker.addLog("BeeOS shutdown")
   state.save("catalog", tracker.catalog)
   state.save("log", tracker.log)
+
+  -- Clear terminal and monitor
+  term.clear()
+  term.setCursorPos(1, 1)
+  if display.monitor then
+    display.monitor.setBackgroundColor(colors.black)
+    display.monitor.clear()
+    display.monitor.setCursorPos(1, 1)
+  end
+
   print("BeeOS stopped.")
 end
 

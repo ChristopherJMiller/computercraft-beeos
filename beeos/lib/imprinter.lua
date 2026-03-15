@@ -64,7 +64,7 @@ end
 -- @param imp Wrapped peripheral
 -- @param config BeeOS config
 -- @return boolean idle
-local function collectImprinterOutput(impName, imp, config)
+function imprinter.collectOutput(impName, imp, config)
   local size = imp.size and imp.size() or 0
   local hasItems = false
 
@@ -133,7 +133,7 @@ function imprinter.tick(machines, config)
 
   for impName, imp in pairs(imprinters) do
     if imp then
-      local idle = collectImprinterOutput(impName, imp, config)
+      local idle = imprinter.collectOutput(impName, imp, config)
       if idle then
         idleImprinters[#idleImprinters + 1] = impName
         imprinter.activeSpecies[impName] = nil
