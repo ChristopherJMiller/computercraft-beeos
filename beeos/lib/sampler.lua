@@ -623,10 +623,7 @@ function sampler.requestTemplate(species, machines, config)
   -- Send both to crafting turtle
   local turtleName = sampler.findTurtle(config, machines)
   if not turtleName then
-    -- List peripherals to help diagnose the name
-    local names = peripheral.getNames()
-    tracker.addLog("Cannot craft template: no turtle found on network"
-      .. " (" .. #names .. " peripherals)")
+    tracker.addLog("Cannot craft template: no turtle found on network")
     return false
   end
 
@@ -662,15 +659,21 @@ function sampler.findTurtle(config, machines)
   if config.turtle.name then
     return config.turtle.name
   end
-  -- Check network scan results
+  -- Check network scan results (already verified as wired peripherals)
   if machines and machines.turtle then
     local name = next(machines.turtle)
     if name then return name end
   end
-  -- Fallback: raw peripheral scan
+  -- Fallback: raw peripheral scan, skip "turtle_N" that lack
+  -- pushItems (local turtle vs wired-network turtle)
   for _, name in ipairs(peripheral.getNames()) do
     if name:find("turtle") then
-      return name
+      local methods = peripheral.getMethods(name)
+      if methods then
+        for _, m in ipairs(methods) do
+          if m == "pushItems" then return name end
+        end
+      end
     end
   end
   return nil
