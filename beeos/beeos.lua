@@ -200,11 +200,13 @@ end
 local function discoveryLoop()
   -- Load mutation graph
   local loaded = false
+  local loadAttempts = 0
 
   while running do
     if config.layers.discovery then
       -- Load mutation graph on first enable
       if not loaded then
+        loadAttempts = loadAttempts + 1
         local ok, err = mutations.load(config.machines.analyzer)
         if ok then
           loaded = true
@@ -213,7 +215,11 @@ local function discoveryLoop()
           tracker.addLog("Mutation graph loaded: " ..
             #mutations.allSpecies .. " species")
         else
-          tracker.addLog("Cannot load mutations: " .. tostring(err))
+          -- Only log first failure and then every 10th retry
+          if loadAttempts == 1 or loadAttempts % 10 == 0 then
+            tracker.addLog("Cannot load mutations (attempt " ..
+              loadAttempts .. "): " .. tostring(err))
+          end
         end
       end
 

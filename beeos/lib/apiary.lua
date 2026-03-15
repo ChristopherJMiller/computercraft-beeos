@@ -127,9 +127,7 @@ function apiary.tryRestart(name, p, config)
 
   local princessInfo = bee.inspect(sourcePeri, princessSlot)
   if princessInfo and imprinter.needsImprinting(princessInfo, config) then
-    -- Keep in princessStorage for imprinter pickup (imprinter scans princessStorage)
-    tracker.addLog("Princess " .. (princessInfo.species or "?") ..
-      " needs traits, waiting for imprinter")
+    -- Stay in princessStorage — imprinter scans it and will pick her up
     return false
   end
 

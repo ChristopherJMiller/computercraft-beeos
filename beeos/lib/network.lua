@@ -79,13 +79,19 @@ function network.first(machines, category)
 end
 
 --- Find a peripheral that has a specific method.
+-- Uses peripheral.getMethods() for reliable detection (avoids Plethora
+-- metatable proxies that return non-nil for any method name).
 -- @param method Method name to look for
 -- @return name, peripheral or nil, nil
 function network.findWithMethod(method)
   for _, name in ipairs(peripheral.getNames()) do
-    local p = peripheral.wrap(name)
-    if p[method] then
-      return name, p
+    local methods = peripheral.getMethods(name)
+    if methods then
+      for _, m in ipairs(methods) do
+        if m == method then
+          return name, peripheral.wrap(name)
+        end
+      end
     end
   end
   return nil, nil
