@@ -833,14 +833,14 @@ local function shutdown()
   -- Transposers: extract samples, blanks, labware
   pcall(sampler.extractTransposers, machines, config)
 
-  -- Turtle: collect any crafted templates from output chest
-  pcall(sampler.onCraftDone, config)
-
-  -- Signal crafting turtle(s) to stop via rednet
+  -- Signal crafting turtle to stop, then collect its output
   pcall(function()
     rednet.broadcast("stop", "beeos_turtle")
     tracker.addLog("Sent stop signal to turtle(s)")
   end)
+  -- Give turtle time to finish current craft and drop into chest
+  sleep(3)
+  pcall(sampler.onCraftDone, config)
 
   tracker.addLog("Shutdown: extraction complete")
 end
