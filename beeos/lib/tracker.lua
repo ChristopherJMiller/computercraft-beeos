@@ -188,6 +188,9 @@ function tracker.scan(machines)
   end
 
   -- Pass 2: Count samples and templates (all catalog entries now exist)
+  local unknownTemplates = 0
+  local templateMap = state.load("template_hashes", {})
+
   for _, meta in ipairs(deferred) do
     local name = meta.name or ""
 
@@ -203,17 +206,23 @@ function tracker.scan(machines)
           catalog[speciesName].samples + (meta.count or 1)
       end
 
-    elseif name:find("gene_template") then
+    elseif name:find("gene_template") and meta.nbtHash then
       -- Templates have no species in displayName — use learned nbtHash mapping
-      local templateMap = state.load("template_hashes", {})
       local templateSpecies = templateMap[meta.nbtHash]
       if templateSpecies then
         templateSpecies = resolveSpecies(templateSpecies)
         ensure(templateSpecies)
         catalog[templateSpecies].templates =
           catalog[templateSpecies].templates + (meta.count or 1)
+      else
+        unknownTemplates = unknownTemplates + 1
       end
     end
+  end
+
+  if unknownTemplates > 0 then
+    tracker.addLog(unknownTemplates .. " template(s) with unknown hash"
+      .. " (run 'learn' tool to fix)")
   end
 
   -- Detect new discoveries

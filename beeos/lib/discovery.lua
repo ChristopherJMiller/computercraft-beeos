@@ -42,6 +42,24 @@ local function getStagingChests(config)
   return config.chests.discoveryStaging or config.chests.supplyInput
 end
 
+--- Build the canonical list of chests to search for genetic templates.
+-- Used by both prepare() and checkImprinting() to ensure consistency.
+local function getTemplateSearchChests(config)
+  local chests = {}
+  for _, n in ipairs(inventory.normalize(config.chests.supplyInput)) do
+    chests[#chests + 1] = n
+  end
+  for _, n in ipairs(inventory.normalize(config.chests.sampleStorage)) do
+    chests[#chests + 1] = n
+  end
+  if config.chests.templateOutput then
+    for _, n in ipairs(inventory.normalize(config.chests.templateOutput)) do
+      chests[#chests + 1] = n
+    end
+  end
+  return chests
+end
+
 --- Set idle state with a reason.
 local function goIdle(reason)
   discovery.state = "idle"
@@ -217,23 +235,52 @@ function discovery.prepare(machines, config)
     return false
   end
 
-  -- Find rocky princess across supply chests
-  local princessMatch = nil
-  local princessMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
-    return (meta.name or ""):find("bee_princess") ~= nil
+  -- Check staging for already-imprinted princess from a previous attempt
+  local reusingPrincess = false
+  local stagedMatches = inventory.findAcross(getStagingChests(config), function(m)
+    return (m.name or ""):find("bee_princess") ~= nil
   end)
-  for _, match in ipairs(princessMatches) do
-    local p = peripheral.wrap(match.source)
-    if p then
-      local info = bee.inspect(p, match.slot)
-      if info then
-        princessMatch = match
-        break
+  if stagedMatches[1] then
+    local stagePeri = peripheral.wrap(stagedMatches[1].source)
+    if stagePeri then
+      local info = bee.inspect(stagePeri, stagedMatches[1].slot)
+      if info and bee.speciesMatch(info.species, mut.parent1) then
+        discovery.stagedPrincess = {
+          source = stagedMatches[1].source,
+          slot = stagedMatches[1].slot,
+        }
+        reusingPrincess = true
+        tracker.addLog("Reusing staged " .. mut.parent1 .. " princess")
       end
     end
   end
 
-  -- Find rocky drone across supply chests
+  if not reusingPrincess then
+    -- Find rocky princess across supply chests
+    local princessMatches = inventory.findAcross(
+      config.chests.supplyInput, function(meta)
+        return (meta.name or ""):find("bee_princess") ~= nil
+      end)
+    local princessMatch = nil
+    for _, match in ipairs(princessMatches) do
+      local p = peripheral.wrap(match.source)
+      if p then
+        local info = bee.inspect(p, match.slot)
+        if info then
+          princessMatch = match
+          break
+        end
+      end
+    end
+    if not princessMatch then
+      goIdle("Need rocky princess")
+      return false
+    end
+    -- Store for later use
+    discovery.princessMatch = princessMatch
+  end
+
+  -- Find rocky drone across supply chests (always needed)
   local droneMatch = nil
   local droneMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
     return (meta.name or ""):find("bee_drone") ~= nil
@@ -241,46 +288,37 @@ function discovery.prepare(machines, config)
   if droneMatches[1] then
     droneMatch = droneMatches[1]
   end
-
-  if not princessMatch or not droneMatch then
-    goIdle("Need rocky princess + drone")
+  if not droneMatch then
+    goIdle("Need rocky drone")
     return false
   end
 
-  -- Build template search chests
-  local templateChests = {}
-  for _, n in ipairs(inventory.normalize(config.chests.supplyInput)) do
-    templateChests[#templateChests + 1] = n
-  end
-  for _, n in ipairs(inventory.normalize(config.chests.sampleStorage)) do
-    templateChests[#templateChests + 1] = n
-  end
-  if config.chests.templateOutput then
-    for _, n in ipairs(inventory.normalize(config.chests.templateOutput)) do
-      templateChests[#templateChests + 1] = n
-    end
-  end
+  local templateChests = getTemplateSearchChests(config)
 
-  -- Find template for parent1
-  local template1Slot, template1Source = nil, nil
-  for _, chestName in ipairs(templateChests) do
-    local p = peripheral.wrap(chestName)
-    if p then
-      template1Slot = discovery.findTemplate(chestName, p,
-        p.size and p.size() or 0, mut.parent1)
-      if template1Slot then
-        template1Source = chestName
-        break
+  -- Find template for parent1 (only needed if princess still needs imprinting)
+  if not reusingPrincess then
+    local template1Slot, template1Source = nil, nil
+    for _, chestName in ipairs(templateChests) do
+      local p = peripheral.wrap(chestName)
+      if p then
+        template1Slot = discovery.findTemplate(chestName, p,
+          p.size and p.size() or 0, mut.parent1)
+        if template1Slot then
+          template1Source = chestName
+          break
+        end
       end
     end
+
+    if not template1Slot then
+      goIdle("No template: " .. mut.parent1)
+      return false
+    end
+    discovery.template1Source = template1Source
+    discovery.template1Slot = template1Slot
   end
 
-  if not template1Slot then
-    goIdle("No template: " .. mut.parent1)
-    return false
-  end
-
-  -- Find template for parent2
+  -- Find template for parent2 (always needed)
   local template2Slot, template2Source = nil, nil
   for _, chestName in ipairs(templateChests) do
     local p = peripheral.wrap(chestName)
@@ -308,17 +346,42 @@ function discovery.prepare(machines, config)
     return false
   end
 
-  -- All prerequisites met! Load imprinter with princess + parent1 template
+  if reusingPrincess then
+    -- Princess already imprinted and staged — go straight to drone imprinting
+    tracker.addLog("Imprinting drone as " .. mut.parent2 .. "...")
+
+    local movedDrone = inventory.move(droneMatch.source, droneMatch.slot,
+      imprinterName, IMP_BEE)
+    if movedDrone == 0 then
+      goIdle("Failed to load drone")
+      return false
+    end
+
+    inventory.move(template2Source, template2Slot,
+      imprinterName, IMP_TEMPLATE)
+    inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
+      imprinterName, IMP_LABWARE)
+
+    discovery.imprinterName = imprinterName
+    discovery.state = "imprinting"
+    discovery.imprintStep = "drone"
+    discovery.idleReason = nil
+    return true
+  end
+
+  -- Normal flow: imprint princess first
   tracker.addLog("Imprinting princess as " .. mut.parent1 .. "...")
 
-  local movedBee = inventory.move(princessMatch.source, princessMatch.slot,
+  local movedBee = inventory.move(
+    discovery.princessMatch.source, discovery.princessMatch.slot,
     imprinterName, IMP_BEE)
   if movedBee == 0 then
     goIdle("Failed to load princess")
     return false
   end
 
-  inventory.move(template1Source, template1Slot, imprinterName, IMP_TEMPLATE)
+  inventory.move(discovery.template1Source, discovery.template1Slot,
+    imprinterName, IMP_TEMPLATE)
   inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
     imprinterName, IMP_LABWARE)
 
@@ -428,13 +491,7 @@ function discovery.checkImprinting(machines, config)
 
       -- Re-find template2 in case it moved (another process may have shifted slots)
       local mut = discovery.currentMutation
-      local templateChests = {}
-      for _, n in ipairs(inventory.normalize(config.chests.supplyInput)) do
-        templateChests[#templateChests + 1] = n
-      end
-      for _, n in ipairs(inventory.normalize(config.chests.sampleStorage)) do
-        templateChests[#templateChests + 1] = n
-      end
+      local templateChests = getTemplateSearchChests(config)
 
       local t2Slot, t2Source = nil, nil
       for _, chestName in ipairs(templateChests) do
