@@ -7,6 +7,24 @@ local bee = require("lib.bee")
 
 local tracker = {}
 
+-- Item name patterns that indicate bee-related items worth full metadata scan
+local BEE_NAME_PATTERNS = {
+  "princess", "drone", "queen",
+  "gene_sample", "gene_template",
+}
+
+--- Check if an item registry name is bee-related.
+-- @param itemName Registry name from list() (e.g. "forestry:bee_drone_ge")
+-- @return boolean
+local function isBeeRelated(itemName)
+  for _, pattern in ipairs(BEE_NAME_PATTERNS) do
+    if itemName:find(pattern) then
+      return true
+    end
+  end
+  return false
+end
+
 -- Species catalog: { [speciesName] = { samples, templates, drones, princesses, queens } }
 tracker.catalog = {}
 
@@ -69,47 +87,91 @@ function tracker.scan(machines)
 
   for periName, p in pairs(allInventories) do
     inventoryCount = inventoryCount + 1
-    local size = p.size and p.size() or 0
-    for slot = 1, size do
-      local meta
-      if p.getItemMeta then
-        meta = p.getItemMeta(slot)
-      end
-      if meta then
-        itemCount = itemCount + 1
-        local name = meta.name or ""
 
-        -- Pass 1: Process bees immediately (creates catalog entries)
-        if meta.individual then
-          local speciesName
-          if meta.individual.genome then
-            -- Analyzed bee: read species from genome
-            local species = (meta.individual.genome.active or {}).species
-            speciesName = bee.normalizeSpecies(species and species.displayName)
-          end
-          if not speciesName then
-            -- Unanalyzed bee: parse from displayName (e.g. "Forest Princess")
-            speciesName = bee.normalizeSpecies((meta.displayName or ""):match("^(.+) %u%l+$"))
-          end
-          if speciesName then
-            ensure(speciesName)
-            if name:find("princess") then
-              catalog[speciesName].princesses =
-                catalog[speciesName].princesses + (meta.count or 1)
-            elseif name:find("queen") then
-              catalog[speciesName].queens =
-                catalog[speciesName].queens + 1
-            else
-              catalog[speciesName].drones =
-                catalog[speciesName].drones + (meta.count or 1)
+    if p.list then
+      -- Fast path: list() returns all occupied slots in a single call.
+      -- Only call expensive getItemMeta() on bee-related slots.
+      local listing = p.list()
+      for slot, info in pairs(listing) do
+        itemCount = itemCount + 1
+        if isBeeRelated(info.name) and p.getItemMeta then
+          local meta = p.getItemMeta(slot)
+          if meta then
+            local name = meta.name or ""
+
+            if meta.individual then
+              local speciesName
+              if meta.individual.genome then
+                local species = (meta.individual.genome.active or {}).species
+                speciesName = bee.normalizeSpecies(species and species.displayName)
+              end
+              if not speciesName then
+                speciesName = bee.normalizeSpecies(
+                  (meta.displayName or ""):match("^(.+) %u%l+$"))
+              end
+              if speciesName then
+                ensure(speciesName)
+                if name:find("princess") then
+                  catalog[speciesName].princesses =
+                    catalog[speciesName].princesses + (meta.count or 1)
+                elseif name:find("queen") then
+                  catalog[speciesName].queens =
+                    catalog[speciesName].queens + 1
+                else
+                  catalog[speciesName].drones =
+                    catalog[speciesName].drones + (meta.count or 1)
+                end
+              end
+
+            elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
+              deferred[#deferred + 1] = meta
+            elseif name:find("gene_template") then
+              deferred[#deferred + 1] = meta
             end
           end
+        end
+      end
+    else
+      -- Fallback: scan all slots sequentially
+      local size = p.size and p.size() or 0
+      for slot = 1, size do
+        local meta
+        if p.getItemMeta then
+          meta = p.getItemMeta(slot)
+        end
+        if meta then
+          itemCount = itemCount + 1
+          local name = meta.name or ""
 
-        -- Defer samples and templates to pass 2
-        elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
-          deferred[#deferred + 1] = meta
-        elseif name:find("gene_template") then
-          deferred[#deferred + 1] = meta
+          if meta.individual then
+            local speciesName
+            if meta.individual.genome then
+              local species = (meta.individual.genome.active or {}).species
+              speciesName = bee.normalizeSpecies(species and species.displayName)
+            end
+            if not speciesName then
+              speciesName = bee.normalizeSpecies(
+                (meta.displayName or ""):match("^(.+) %u%l+$"))
+            end
+            if speciesName then
+              ensure(speciesName)
+              if name:find("princess") then
+                catalog[speciesName].princesses =
+                  catalog[speciesName].princesses + (meta.count or 1)
+              elseif name:find("queen") then
+                catalog[speciesName].queens =
+                  catalog[speciesName].queens + 1
+              else
+                catalog[speciesName].drones =
+                  catalog[speciesName].drones + (meta.count or 1)
+              end
+            end
+
+          elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
+            deferred[#deferred + 1] = meta
+          elseif name:find("gene_template") then
+            deferred[#deferred + 1] = meta
+          end
         end
       end
     end

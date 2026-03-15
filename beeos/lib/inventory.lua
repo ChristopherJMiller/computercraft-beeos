@@ -36,6 +36,7 @@ function inventory.pull(toName, toSlot, fromName, fromSlot, limit)
 end
 
 --- Find all slots matching a predicate in an inventory.
+-- Uses list() to skip empty slots when available (much faster over network).
 -- @param periName Peripheral name
 -- @param predicate function(meta) -> boolean
 -- @return List of { slot=n, meta=table }
@@ -44,12 +45,26 @@ function inventory.findSlots(periName, predicate)
   if not p then return {} end
 
   local results = {}
-  local size = p.size and p.size() or 0
 
-  for slot = 1, size do
-    local meta = p.getItemMeta and p.getItemMeta(slot) or p.getItemDetail and p.getItemDetail(slot)
-    if meta and predicate(meta) then
-      results[#results + 1] = { slot = slot, meta = meta }
+  if p.list then
+    -- Fast path: list() returns only occupied slots in one call
+    local listing = p.list()
+    for slot in pairs(listing) do
+      local meta = p.getItemMeta and p.getItemMeta(slot)
+        or p.getItemDetail and p.getItemDetail(slot)
+      if meta and predicate(meta) then
+        results[#results + 1] = { slot = slot, meta = meta }
+      end
+    end
+  else
+    -- Fallback: scan all slots sequentially
+    local size = p.size and p.size() or 0
+    for slot = 1, size do
+      local meta = p.getItemMeta and p.getItemMeta(slot)
+        or p.getItemDetail and p.getItemDetail(slot)
+      if meta and predicate(meta) then
+        results[#results + 1] = { slot = slot, meta = meta }
+      end
     end
   end
 
@@ -57,6 +72,7 @@ function inventory.findSlots(periName, predicate)
 end
 
 --- Find the first empty slot in an inventory.
+-- Uses list() when available (single call instead of per-slot scanning).
 -- @param periName Peripheral name
 -- @return Slot number or nil
 function inventory.findEmpty(periName)
@@ -64,8 +80,23 @@ function inventory.findEmpty(periName)
   if not p then return nil end
 
   local size = p.size and p.size() or 0
+  if size == 0 then return nil end
+
+  if p.list then
+    -- Fast path: list() returns only occupied slots, find a gap
+    local listing = p.list()
+    for slot = 1, size do
+      if not listing[slot] then
+        return slot
+      end
+    end
+    return nil
+  end
+
+  -- Fallback: scan slots sequentially
   for slot = 1, size do
-    local meta = p.getItemMeta and p.getItemMeta(slot) or p.getItemDetail and p.getItemDetail(slot)
+    local meta = p.getItemMeta and p.getItemMeta(slot)
+      or p.getItemDetail and p.getItemDetail(slot)
     if not meta then
       return slot
     end
