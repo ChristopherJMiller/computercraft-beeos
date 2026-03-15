@@ -634,6 +634,17 @@ function sampler.requestTemplate(species, machines, config)
     return false
   end
 
+  -- Verify turtle is ready via rednet before sending items
+  local turtleStatus = sampler.queryTurtle()
+  if not turtleStatus then
+    tracker.addLog("Cannot craft template: turtle not responding")
+    return false
+  end
+  if turtleStatus ~= "ready" then
+    tracker.addLog("Cannot craft template: turtle is " .. turtleStatus)
+    return false
+  end
+
   -- Push blank template and gene sample to turtle
   local movedBlank = inventory.move(blankSource, blankSlot, turtleName, nil, 1)
   local movedSample = inventory.move(sampleSource, sampleSlot, turtleName, nil, 1)
