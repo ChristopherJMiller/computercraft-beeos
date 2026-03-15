@@ -5,17 +5,36 @@
 --   learn              Interactive: pick peripheral, learn all unknown templates
 --   learn <peri> <slot> Learn a single slot
 
-local state = require("lib.state")
 local args = { ... }
+
+-- Inline state helpers (tools can't require("lib.state") from tools/ dir)
+local STATE_DIR = "data"
+local function stateLoad(key, default)
+  local path = STATE_DIR .. "/" .. key .. ".dat"
+  if not fs.exists(path) then return default end
+  local f = fs.open(path, "r")
+  if not f then return default end
+  local content = f.readAll()
+  f.close()
+  local ok, data = pcall(textutils.unserialise, content)
+  if ok and data ~= nil then return data end
+  return default
+end
+local function stateSave(key, data)
+  local f = fs.open(STATE_DIR .. "/" .. key .. ".dat", "w")
+  if not f then return end
+  f.write(textutils.serialise(data))
+  f.close()
+end
 
 --- Build sorted species list from persisted state for autocomplete.
 local function buildSpeciesList()
   local seen = {}
   local list = {}
-  for sp in pairs(state.load("discovered", {})) do
+  for sp in pairs(stateLoad("discovered", {})) do
     if not seen[sp] then seen[sp] = true; list[#list + 1] = sp end
   end
-  for sp in pairs(state.load("catalog", {})) do
+  for sp in pairs(stateLoad("catalog", {})) do
     if not seen[sp] then seen[sp] = true; list[#list + 1] = sp end
   end
   table.sort(list)
@@ -219,7 +238,7 @@ local function learnSlot(peri, s, speciesList)
     return false
   end
 
-  local map = state.load("template_hashes", {})
+  local map = stateLoad("template_hashes", {})
   if map[nbtHash] then
     term.setTextColor(colors.lime)
     print("Slot " .. s .. ": already known as " .. map[nbtHash])
@@ -234,7 +253,7 @@ local function learnSlot(peri, s, speciesList)
   end
 
   map[nbtHash] = species
-  state.save("template_hashes", map)
+  stateSave("template_hashes", map)
 
   term.setTextColor(colors.lime)
   print("Learned: " .. species .. " (" .. nbtHash:sub(1, 12) .. "...)")
@@ -245,7 +264,7 @@ end
 --- Walk all slots in a peripheral, prompting for unknown templates.
 local function walkAll(peri, speciesList)
   local size = peri.size and peri.size() or 0
-  local map = state.load("template_hashes", {})
+  local map = stateLoad("template_hashes", {})
 
   local unknown = {}
   local known = 0
