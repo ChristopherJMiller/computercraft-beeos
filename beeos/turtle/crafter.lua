@@ -204,12 +204,24 @@ local function main()
   end
   log("Output chest detected")
 
+  -- Debug: show what's on each side
+  log("Peripheral scan:")
+  for _, side in ipairs(rs.getSides()) do
+    local pType = peripheral.getType(side)
+    log("  " .. side .. ": " .. (pType or "nothing"))
+  end
+  log("Network peripherals:")
+  for _, name in ipairs(peripheral.getNames()) do
+    log("  " .. name .. " (" .. peripheral.getType(name) .. ")")
+  end
+
   local modemOk = openModem()
   if modemOk then
     log("Rednet open (ID: " .. os.getComputerID() .. ")")
     rednet.host(PROTOCOL, "beeos_crafter")
   else
-    log("ERROR: No modem found, cannot communicate with computer")
+    log("ERROR: No modem found for rednet")
+    log("Attach a modem to a side of the turtle")
     return
   end
 
