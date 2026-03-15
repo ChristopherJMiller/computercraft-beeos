@@ -617,7 +617,8 @@ local function main()
     end
   end
 
-  -- Log startup
+  -- Clear logs and log startup
+  tracker.log = {}
   tracker.addLog("BeeOS starting up")
 
   -- Initial network scan
