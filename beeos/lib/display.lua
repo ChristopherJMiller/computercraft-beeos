@@ -185,7 +185,24 @@ local function drawSpecies(mon, w, h, startY)
   y = y + 1
 
   -- Species rows (reserve 3 lines for footer separator, stats, legend)
-  local maxRows = h - y - 3
+  local maxRows = math.max(1, h - y - 3)
+  display.speciesPageSize = maxRows
+  display.speciesTotal = #species
+
+  -- Clamp scroll offset
+  local maxOffset = math.max(0, #species - maxRows)
+  if display.scrollOffset > maxOffset then
+    display.scrollOffset = maxOffset
+  end
+
+  -- Page indicator in header area
+  if #species > maxRows then
+    local page = math.floor(display.scrollOffset / maxRows) + 1
+    local totalPages = math.ceil(#species / maxRows)
+    local pageStr = "[<] " .. page .. "/" .. totalPages .. " [>]"
+    drawText(mon, w - #pageStr, startY, pageStr, colors.cyan, colors.black)
+  end
+
   for i = 1 + display.scrollOffset, math.min(#species, maxRows + display.scrollOffset) do
     local sp = species[i]
     if sp and y <= h then
@@ -654,6 +671,23 @@ function display.handleTouch(x, y)
       if x >= range[1] and x <= range[2] then
         return { action = "toggle", layer = range[3] }
       end
+    end
+  end
+
+  -- Species tab pagination (line 4 = startY, right side has [<] page [>])
+  if display.activeTab == "species" and y == 4 then
+    local pageSize = display.speciesPageSize or 1
+    local total = display.speciesTotal or 0
+    local maxOffset = math.max(0, total - pageSize)
+    -- [<] button area (right side of header)
+    if x >= w - 15 and x <= w - 12 then
+      display.scrollOffset = math.max(0, display.scrollOffset - pageSize)
+      return { action = "scroll" }
+    end
+    -- [>] button area
+    if x >= w - 2 then
+      display.scrollOffset = math.min(maxOffset, display.scrollOffset + pageSize)
+      return { action = "scroll" }
     end
   end
 
