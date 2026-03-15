@@ -169,10 +169,9 @@ function bee.isBlankTemplate(inventory, slot)
   local meta = inventory.getItemMeta(slot)
   if not meta then return false end
   local name = meta.name or ""
-  -- Blank template: gendustry:gene_template with no data
-  -- vs filled template which has NBT data
-  -- This may need refinement after Phase 0 testing
-  return name:find("gene_template") ~= nil and (meta.damage == 0 or meta.displayName == "Genetic Template")
+  -- Blank template: gene_template with no NBT data (no nbtHash)
+  -- Filled templates have NBT containing species + samples
+  return name:find("gene_template") ~= nil and meta.nbtHash == nil
 end
 
 --- Check if a slot contains genetic waste (failed imprinting byproduct).

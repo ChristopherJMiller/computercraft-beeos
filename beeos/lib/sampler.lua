@@ -608,8 +608,8 @@ function sampler.requestTemplate(species, machines, config)
 
   local blankMatches = inventory.findAcross(config.chests.supplyInput, function(meta)
     local n = meta.name or ""
-    return n:find("gene_template") ~= nil
-      and (meta.damage == 0 or meta.displayName == "Genetic Template")
+    -- Blank templates have no NBT data (no nbtHash)
+    return n:find("gene_template") ~= nil and meta.nbtHash == nil
   end)
 
   if blankMatches[1] then
@@ -734,7 +734,10 @@ function sampler.onCraftDone(config)
   local items = inventory.listItems(outputChest)
   for _, item in ipairs(items) do
     local itemName = item.meta.name or ""
-    if itemName:find("gene_template") and item.meta.damage ~= 0 then
+    local isTemplate = itemName:find("gene_template") ~= nil
+    -- Filled templates have NBT data (nbtHash present); blanks don't
+    local isFilled = isTemplate and item.meta.nbtHash ~= nil
+    if isFilled then
       -- Learn hash if we know which species this is
       if sampler.pendingTemplate then
         local nbtHash = item.meta.nbtHash
