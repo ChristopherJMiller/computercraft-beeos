@@ -4,6 +4,7 @@
 -- Falls back to modpack preset files when the API is unavailable.
 
 local network = require("lib.network")
+local bee = require("lib.bee")
 
 local mutations = {}
 
@@ -53,8 +54,9 @@ local function loadSpeciesFromAPI(analyzer)
   mutations.allSpecies = {}
   for i = 1, #specList do
     local species = specList[i]
-    local name = type(species) == "table"
+    local raw = type(species) == "table"
       and (species.displayName or species.name) or tostring(species)
+    local name = bee.normalizeSpecies(raw)
     mutations.allSpecies[#mutations.allSpecies + 1] = name
   end
   table.sort(mutations.allSpecies)
@@ -125,7 +127,7 @@ function mutations.load(analyzerName, presetName)
         if ok2 and rawSpecList then
           for _, sp in ipairs(rawSpecList) do
             if type(sp) == "table" and sp.id and sp.displayName then
-              uidToName[sp.id] = sp.displayName
+              uidToName[sp.id] = bee.normalizeSpecies(sp.displayName)
             end
           end
         end
@@ -138,7 +140,7 @@ function mutations.load(analyzerName, presetName)
 
         local result
         if type(mut.result) == "table" and type(mut.result.species) == "table" then
-          result = mut.result.species.displayName
+          result = bee.normalizeSpecies(mut.result.species.displayName)
         elseif type(mut.result) == "string" then
           result = mut.result
         end
@@ -149,8 +151,8 @@ function mutations.load(analyzerName, presetName)
         if type(parent2) == "string" and uidToName[parent2] then
           parent2 = uidToName[parent2]
         end
-        if type(parent1) == "table" then parent1 = parent1.displayName or parent1.name end
-        if type(parent2) == "table" then parent2 = parent2.displayName or parent2.name end
+        if type(parent1) == "table" then parent1 = bee.normalizeSpecies(parent1.displayName or parent1.name) end
+        if type(parent2) == "table" then parent2 = bee.normalizeSpecies(parent2.displayName or parent2.name) end
 
         if chance > 1 then chance = chance / 100 end
 

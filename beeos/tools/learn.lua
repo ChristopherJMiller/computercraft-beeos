@@ -27,6 +27,13 @@ local function stateSave(key, data)
   f.close()
 end
 
+--- Normalize species name by stripping mod registry prefixes.
+-- Mirrors bee.normalizeSpecies() (can't require lib.bee from tools/).
+local function normalizeSpecies(name)
+  if not name then return name end
+  return name:match("%.bees%.species%.(.+)$") or name
+end
+
 --- Title-case a species name: "forest" -> "Forest", "rock salt" -> "Rock Salt"
 local function titleCase(s)
   if not s or s == "" then return s end
@@ -385,8 +392,8 @@ local function scanChest(periName)
       local name = meta.name or ""
       local display = meta.displayName or ""
       if name:find("gene_sample") and not name:find("gene_sample_blank") then
-        -- Same pattern as tracker.lua:125
-        local sp = display:match("Species:%s*(.+)$")
+        -- Same pattern as tracker.lua:125 + normalization
+        local sp = normalizeSpecies(display:match("Species:%s*(.+)$"))
         if sp then
           result.samples[sp] = (result.samples[sp] or 0) + (meta.count or 1)
         end
@@ -495,6 +502,23 @@ if args[1] == "status" then
     term.setTextColor(colors.red)
     print()
     print(totalUnknown .. " template(s) with unknown hash (run 'learn' to fix)")
+  end
+
+  -- Health check: flag species names that look like internal registry IDs
+  local badNames = {}
+  for _, sp in ipairs(allSpecies) do
+    if sp:find("%.") then
+      badNames[#badNames + 1] = sp
+    end
+  end
+  if #badNames > 0 then
+    term.setTextColor(colors.red)
+    print()
+    print("WARNING: " .. #badNames .. " species with internal registry names:")
+    for _, sp in ipairs(badNames) do
+      print("  " .. sp)
+    end
+    print("These may indicate a normalization bug.")
   end
 
   term.setTextColor(colors.white)

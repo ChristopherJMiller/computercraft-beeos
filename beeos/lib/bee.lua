@@ -4,6 +4,16 @@
 
 local bee = {}
 
+--- Normalize a species name by stripping mod registry prefixes.
+-- Gendustry custom bees can return internal keys like
+-- "gendustry.bees.species.Springwater" when server-side i18n fails.
+-- @param name Species display name (may be a registry key)
+-- @return Clean species name
+function bee.normalizeSpecies(name)
+  if not name then return name end
+  return name:match("%.bees%.species%.(.+)$") or name
+end
+
 --- Inspect a bee in an inventory slot.
 -- @param inventory Wrapped peripheral with getItemMeta
 -- @param slot Slot number to inspect
@@ -26,7 +36,7 @@ function bee.inspect(inventory, slot)
   local g = meta.individual.genome
   if not g then
     -- Unanalyzed bee: extract species from displayName (e.g. "Forest Princess")
-    local speciesName = (meta.displayName or ""):match("^(.+) %u%l+$")
+    local speciesName = bee.normalizeSpecies((meta.displayName or ""):match("^(.+) %u%l+$"))
     return {
       species = speciesName,
       type = beeType,
@@ -44,9 +54,9 @@ function bee.inspect(inventory, slot)
   local inactiveSpecies = inactive.species or {}
 
   return {
-    species = activeSpecies.displayName,
+    species = bee.normalizeSpecies(activeSpecies.displayName),
     speciesId = activeSpecies.id,
-    inactiveSpecies = inactiveSpecies.displayName,
+    inactiveSpecies = bee.normalizeSpecies(inactiveSpecies.displayName),
     inactiveSpeciesId = inactiveSpecies.id,
     isPurebred = activeSpecies.id == inactiveSpecies.id,
     type = beeType,

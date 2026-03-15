@@ -3,6 +3,7 @@
 -- Read-only — never moves items.
 
 local state = require("lib.state")
+local bee = require("lib.bee")
 
 local tracker = {}
 
@@ -84,11 +85,11 @@ function tracker.scan(machines)
           if meta.individual.genome then
             -- Analyzed bee: read species from genome
             local species = (meta.individual.genome.active or {}).species
-            speciesName = species and species.displayName
+            speciesName = bee.normalizeSpecies(species and species.displayName)
           end
           if not speciesName then
             -- Unanalyzed bee: parse from displayName (e.g. "Forest Princess")
-            speciesName = (meta.displayName or ""):match("^(.+) %u%l+$")
+            speciesName = bee.normalizeSpecies((meta.displayName or ""):match("^(.+) %u%l+$"))
           end
           if speciesName then
             ensure(speciesName)
@@ -122,7 +123,7 @@ function tracker.scan(machines)
       -- Format: "Bee Sample - Species: Forest" or "Bee Sample - Speed: Fastest"
       local displayName = meta.displayName or ""
       -- Extract species name from "Species: <name>" pattern
-      local speciesName = displayName:match("Species:%s*(.+)$")
+      local speciesName = bee.normalizeSpecies(displayName:match("Species:%s*(.+)$"))
       if speciesName and catalog[speciesName] then
         catalog[speciesName].samples =
           catalog[speciesName].samples + (meta.count or 1)
