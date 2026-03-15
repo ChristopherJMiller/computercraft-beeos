@@ -422,13 +422,19 @@ if args[1] == "status" then
     end
   end
 
+  -- Chest configs can be a string or a table of strings (multi-chest)
+  local function addChests(chestList, value, label)
+    if type(value) == "string" then
+      chestList[#chestList + 1] = { name = value, label = label }
+    elseif type(value) == "table" then
+      for _, v in ipairs(value) do
+        chestList[#chestList + 1] = { name = v, label = label }
+      end
+    end
+  end
   local chests = {}
-  if cfg.chests.sampleStorage then
-    chests[#chests + 1] = { name = cfg.chests.sampleStorage, label = "Sample Storage" }
-  end
-  if cfg.chests.templateOutput then
-    chests[#chests + 1] = { name = cfg.chests.templateOutput, label = "Template Output" }
-  end
+  addChests(chests, cfg.chests.sampleStorage, "Sample Storage")
+  addChests(chests, cfg.chests.templateOutput, "Template Output")
   if #chests == 0 then
     printError("No sampleStorage or templateOutput chests configured.")
     return
