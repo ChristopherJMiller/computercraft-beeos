@@ -189,6 +189,7 @@ local function machineCollectorLoop()
     if config.layers.sampler then
       pcall(sampler.collectTransposerOutput, machines, config)
       pcall(sampler.collectOutput, machines, config)
+      pcall(sampler.onCraftDone, config)
     end
     sleep(0.5)
   end
