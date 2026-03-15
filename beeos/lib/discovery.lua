@@ -19,6 +19,15 @@ discovery.attempts = 0
 discovery.maxAttempts = 10  -- max retries per target before moving on
 discovery.discovered = {}   -- { [species] = true } set of known species
 
+--- Get the export chest name with backwards-compatible fallback.
+-- @param config BeeOS config
+-- @return Peripheral name or nil
+local function getExportChest(config)
+  return config.chests.export
+    or config.chests.productOutput
+    or config.chests.surplusOutput
+end
+
 --- Initialize discovery from tracker catalog and persisted state.
 function discovery.init()
   -- Load persisted discovered set
@@ -270,53 +279,65 @@ function discovery.checkMutatron(machines, config)
   if not mutatronPeri then return false end
 
   local size = mutatronPeri.size and mutatronPeri.size() or 0
+  local exportChest = getExportChest(config)
 
   -- Check output slots for results
   for slot = 1, size do
     local meta = mutatronPeri.getItemMeta and mutatronPeri.getItemMeta(slot)
-    if meta and meta.individual then
-      local info = bee.inspect(mutatronPeri, slot)
-      if info then
-        local droneBuffer = config.chests.droneBuffer
+    if meta then
+      local itemName = meta.name or ""
 
-        if info.species == discovery.currentTarget then
-          -- Success! Found our target species
-          tracker.addLog("SUCCESS: Bred " .. info.species .. "!")
-          discovery.markDiscovered(info.species)
+      -- Handle genetic waste from mutatron
+      if itemName:find("waste") then
+        if exportChest then
+          inventory.move(mutatronName, slot, exportChest)
+          tracker.addLog("Mutatron: genetic waste -> export")
+        end
 
-          -- Move to drone buffer for sampling
-          if droneBuffer then
-            inventory.move(mutatronName, slot, droneBuffer)
-          end
+      elseif meta.individual then
+        local info = bee.inspect(mutatronPeri, slot)
+        if info then
+          local droneBuffer = config.chests.droneBuffer
 
-          discovery.state = "idle"
-          discovery.currentTarget = nil
-          return true
-
-        else
-          -- Got a different species (random mutation)
-          -- Still potentially useful!
-          if not discovery.discovered[info.species] then
-            tracker.addLog("Bonus discovery: " .. info.species .. " (wanted " ..
-              (discovery.currentTarget or "?") .. ")")
+          if info.species == discovery.currentTarget then
+            -- Success! Found our target species
+            tracker.addLog("SUCCESS: Bred " .. info.species .. "!")
             discovery.markDiscovered(info.species)
-          end
 
-          -- Move to buffer for sampling
-          if droneBuffer then
-            inventory.move(mutatronName, slot, droneBuffer)
-          end
+            -- Move to drone buffer for sampling
+            if droneBuffer then
+              inventory.move(mutatronName, slot, droneBuffer)
+            end
 
-          -- Retry if we haven't exceeded max attempts
-          if discovery.attempts < discovery.maxAttempts then
-            discovery.state = "imprinting"
-            return true
-          else
-            tracker.addLog("Max attempts reached for " ..
-              (discovery.currentTarget or "?") .. ", moving on")
             discovery.state = "idle"
             discovery.currentTarget = nil
-            return false
+            return true
+
+          else
+            -- Got a different species (random mutation)
+            -- Still potentially useful!
+            if not discovery.discovered[info.species] then
+              tracker.addLog("Bonus discovery: " .. info.species .. " (wanted " ..
+                (discovery.currentTarget or "?") .. ")")
+              discovery.markDiscovered(info.species)
+            end
+
+            -- Move to buffer for sampling
+            if droneBuffer then
+              inventory.move(mutatronName, slot, droneBuffer)
+            end
+
+            -- Retry if we haven't exceeded max attempts
+            if discovery.attempts < discovery.maxAttempts then
+              discovery.state = "imprinting"
+              return true
+            else
+              tracker.addLog("Max attempts reached for " ..
+                (discovery.currentTarget or "?") .. ", moving on")
+              discovery.state = "idle"
+              discovery.currentTarget = nil
+              return false
+            end
           end
         end
       end

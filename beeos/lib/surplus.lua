@@ -7,14 +7,23 @@ local tracker = require("lib.tracker")
 
 local surplus = {}
 
+--- Get the export chest name with backwards-compatible fallback.
+-- @param config BeeOS config
+-- @return Peripheral name or nil
+local function getExportChest(config)
+  return config.chests.export
+    or config.chests.productOutput
+    or config.chests.surplusOutput
+end
+
 --- Process surplus drones from the drone buffer.
--- Drones above the max threshold get sent to the DNA Extractor (via surplus chest).
+-- Drones above the max threshold get sent to the DNA Extractor (via export chest).
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 function surplus.process(machines, config)
   local droneBuffer = config.chests.droneBuffer
-  local surplusOutput = config.chests.surplusOutput
-  if not droneBuffer or not surplusOutput then return end
+  local exportChest = getExportChest(config)
+  if not droneBuffer or not exportChest then return end
 
   local bufferPeri = peripheral.wrap(droneBuffer)
   if not bufferPeri then return end
@@ -45,16 +54,16 @@ function surplus.process(machines, config)
       local excess = count - maxDrones
       local slots = droneSlots[species]
 
-      -- Move excess drones to surplus output (DNA Extractor)
+      -- Move excess drones to export chest (DNA Extractor picks up from AE2)
       for i = #slots, 1, -1 do
         if excess <= 0 then break end
         local meta = bufferPeri.getItemMeta and bufferPeri.getItemMeta(slots[i])
         if meta then
           local toMove = math.min(excess, meta.count or 1)
-          local moved = inventory.move(droneBuffer, slots[i], surplusOutput, nil, toMove)
+          local moved = inventory.move(droneBuffer, slots[i], exportChest, nil, toMove)
           excess = excess - moved
           if moved > 0 then
-            tracker.addLog("Surplus " .. species .. ": " .. moved .. " -> DNA Extractor")
+            tracker.addLog("Surplus " .. species .. ": " .. moved .. " -> export")
           end
         end
       end
@@ -62,12 +71,12 @@ function surplus.process(machines, config)
   end
 end
 
---- Feed the DNA Extractor from the surplus chest.
+--- Feed the DNA Extractor from the surplus/export chest.
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 function surplus.feedExtractor(machines, config)
-  local surplusOutput = config.chests.surplusOutput
-  if not surplusOutput then return end
+  local exportChest = getExportChest(config)
+  if not exportChest then return end
 
   -- Find DNA Extractors
   local extractors = {}
@@ -81,17 +90,21 @@ function surplus.feedExtractor(machines, config)
 
   if not next(extractors) then return end
 
-  local surplusPeri = peripheral.wrap(surplusOutput)
-  if not surplusPeri then return end
-  local surplusSize = surplusPeri.size and surplusPeri.size() or 0
+  local exportPeri = peripheral.wrap(exportChest)
+  if not exportPeri then return end
+  local exportSize = exportPeri.size and exportPeri.size() or 0
 
-  for slot = 1, surplusSize do
-    local meta = surplusPeri.getItemMeta and surplusPeri.getItemMeta(slot)
+  for slot = 1, exportSize do
+    local meta = exportPeri.getItemMeta and exportPeri.getItemMeta(slot)
     if meta then
-      -- Send to first extractor with space
-      for extractorName in pairs(extractors) do
-        local moved = inventory.move(surplusOutput, slot, extractorName, nil, 1)
-        if moved > 0 then break end
+      -- Only feed bees to the extractor, not combs or waste
+      local itemName = meta.name or ""
+      if itemName:find("bee_drone") then
+        -- Send to first extractor with space
+        for extractorName in pairs(extractors) do
+          local moved = inventory.move(exportChest, slot, extractorName, nil, 1)
+          if moved > 0 then break end
+        end
       end
     end
   end

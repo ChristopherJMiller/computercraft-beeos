@@ -31,14 +31,14 @@ display.updateStatus = nil  -- nil or "updating" or "done: 16 OK, 0 failed"
 
 -- Config roles displayed on Config tab
 local CONFIG_ROLES = {
-  { key = "chests.droneBuffer",    label = "Drone Buffer" },
-  { key = "chests.sampleStorage",  label = "Sample Storage" },
-  { key = "chests.productOutput",  label = "Product Output" },
-  { key = "chests.templateOutput", label = "Template Output" },
-  { key = "chests.supplyInput",    label = "Supply Input" },
-  { key = "chests.surplusOutput",  label = "Surplus Output" },
-  { key = "turtle.name",          label = "Turtle" },
-  { key = "machines.analyzer",    label = "Analyzer" },
+  { key = "chests.droneBuffer",      label = "Drone Buffer" },
+  { key = "chests.sampleStorage",    label = "Sample Storage" },
+  { key = "chests.export",           label = "Export (AE2)" },
+  { key = "chests.templateOutput",   label = "Template Output" },
+  { key = "chests.supplyInput",      label = "Supply Input" },
+  { key = "chests.princessStorage",  label = "Princess Store" },
+  { key = "turtle.name",            label = "Turtle" },
+  { key = "machines.analyzer",      label = "Analyzer" },
 }
 
 --- Initialize the display.

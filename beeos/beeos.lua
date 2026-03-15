@@ -9,6 +9,7 @@ local sampler = require("lib.sampler")
 local discovery = require("lib.discovery")
 local surplus = require("lib.surplus")
 local mutations = require("lib.mutations")
+local imprinter = require("lib.imprinter")
 local display = require("lib.display")
 local state = require("lib.state")
 local updater = require("lib.updater")
@@ -17,10 +18,12 @@ local updater = require("lib.updater")
 local CONFIGURABLE = {
   ["chests.droneBuffer"]     = "Drone buffer chest",
   ["chests.sampleStorage"]   = "Sample storage chest",
-  ["chests.productOutput"]   = "Product output chest (AE2 import)",
+  ["chests.export"]          = "Export chest (AE2 import: combs, surplus, waste)",
   ["chests.templateOutput"]  = "Template output chest (AE2 import)",
   ["chests.supplyInput"]     = "Supply input chest (AE2 export)",
-  ["chests.surplusOutput"]   = "Surplus output chest (DNA extractor)",
+  ["chests.princessStorage"] = "Princess overflow chest",
+  ["chests.productOutput"]   = "Legacy product output (use export instead)",
+  ["chests.surplusOutput"]   = "Legacy surplus output (use export instead)",
   ["machines.analyzer"]      = "Forestry analyzer peripheral",
   ["turtle.name"]            = "Crafting turtle peripheral",
   ["display.monitorSide"]    = "Monitor peripheral name",
@@ -187,6 +190,19 @@ local function discoveryLoop()
       end
     end
     sleep(config.timing.discoveryInterval)
+  end
+end
+
+--- Trait imprinting loop
+local function imprinterLoop()
+  while running do
+    if config.layers.apiary then
+      local ok, err = pcall(imprinter.tick, machines, config)
+      if not ok then
+        tracker.addLog("Imprinter error: " .. tostring(err))
+      end
+    end
+    sleep(config.timing.apiaryInterval)
   end
 end
 
@@ -527,6 +543,7 @@ local function main()
     apiaryLoop,
     samplerLoop,
     discoveryLoop,
+    imprinterLoop,
     surplusLoop,
     displayLoop,
     touchLoop,

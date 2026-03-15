@@ -36,10 +36,25 @@ config.thresholds = {
 config.chests = {
   droneBuffer = nil,      -- "minecraft:chest_0"
   sampleStorage = nil,    -- "minecraft:chest_1"
-  productOutput = nil,    -- "minecraft:chest_2" (AE2 import bus attached)
-  templateOutput = nil,   -- "minecraft:chest_3" (AE2 import bus attached)
-  supplyInput = nil,      -- "minecraft:chest_4" (AE2 export bus: labware, blanks, rocky bees)
-  surplusOutput = nil,    -- "minecraft:chest_5" (feeds DNA Extractor)
+  templateOutput = nil,   -- "minecraft:chest_2" (AE2 import bus attached)
+  supplyInput = nil,      -- "minecraft:chest_3" (AE2 export bus: labware, blanks, rocky bees)
+  princessStorage = nil,  -- "minecraft:chest_4" (princess overflow when apiaries full)
+  export = nil,           -- "minecraft:chest_5" (AE2 import bus: combs, surplus, waste)
+
+  -- Legacy aliases (still work if export is nil)
+  productOutput = nil,
+  surplusOutput = nil,
+}
+
+-- === Trait Imprinting ===
+-- Ideal traits to imprint on bees before they enter apiaries.
+-- Set a trait to true to require it, false/nil to skip.
+config.traits = {
+  caveDwelling = true,
+  neverSleeps = true,
+  toleratesRain = true,
+  -- temperatureTolerance and humidityTolerance need Phase 0 verification
+  -- of exact string format from getItemMeta
 }
 
 -- === Machine Overrides ===

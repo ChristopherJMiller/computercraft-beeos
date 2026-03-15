@@ -141,6 +141,16 @@ function bee.isBlankTemplate(inventory, slot)
   return name:find("gene_template") ~= nil and (meta.damage == 0 or meta.displayName == "Genetic Template")
 end
 
+--- Check if a slot contains genetic waste (failed imprinting byproduct).
+-- @param inventory Wrapped peripheral
+-- @param slot Slot number
+-- @return boolean
+function bee.isGeneticWaste(inventory, slot)
+  local meta = inventory.getItemMeta(slot)
+  if not meta then return false end
+  return (meta.name or ""):find("waste") ~= nil
+end
+
 --- Get a quick species summary string for display purposes.
 -- @param beeInfo Table returned by bee.inspect()
 -- @return String like "Forest (pure)" or "Forest/Meadows"

@@ -4,12 +4,22 @@
 local bee = require("lib.bee")
 local inventory = require("lib.inventory")
 local tracker = require("lib.tracker")
+local imprinter = require("lib.imprinter")
 
 local apiary = {}
 
 -- Apiary status tracking
 apiary.status = {}
 -- { [name] = { species, state, lastCheck, products } }
+
+--- Get the export chest name with backwards-compatible fallback.
+-- @param config BeeOS config
+-- @return Peripheral name or nil
+local function getExportChest(config)
+  return config.chests.export
+    or config.chests.productOutput
+    or config.chests.surplusOutput
+end
 
 --- Check a single apiary and manage it.
 -- @param name Peripheral name of the apiary
@@ -58,7 +68,7 @@ function apiary.check(name, p, config)
 end
 
 --- Extract output items from an apiary.
--- Routes products to AE2, drones to buffer, princesses back or to storage.
+-- Routes products to export, drones to buffer, princesses to princessStorage or buffer.
 -- @param name Peripheral name
 -- @param p Wrapped peripheral
 -- @param config BeeOS config
@@ -72,16 +82,18 @@ function apiary.extractOutput(name, p, config)
   -- We scan all slots and only extract from output area
   local outputStart = 7  -- Adjust after Phase 0 testing
 
+  local exportChest = getExportChest(config)
+
   for slot = outputStart, size do
     local meta = p.getItemMeta and p.getItemMeta(slot)
     if meta then
       local itemName = meta.name or ""
 
       if itemName:find("bee_princess") or itemName:find("bee_queen") then
-        -- Princess/queen goes back to this apiary's input or to drone buffer
-        -- For now, send to drone buffer for inspection and re-routing
-        if config.chests.droneBuffer then
-          inventory.move(name, slot, config.chests.droneBuffer)
+        -- Princess → princessStorage if available, else droneBuffer
+        local dest = config.chests.princessStorage or config.chests.droneBuffer
+        if dest then
+          inventory.move(name, slot, dest)
         end
 
       elseif itemName:find("bee_drone") then
@@ -91,9 +103,9 @@ function apiary.extractOutput(name, p, config)
         end
 
       else
-        -- Products (honeycombs, etc.) go to AE2
-        if config.chests.productOutput then
-          inventory.move(name, slot, config.chests.productOutput)
+        -- Products (honeycombs, etc.) go to export chest
+        if exportChest then
+          inventory.move(name, slot, exportChest)
         end
       end
     end
@@ -101,7 +113,8 @@ function apiary.extractOutput(name, p, config)
 end
 
 --- Try to restart an apiary with a princess and drone.
--- First checks the drone buffer for matching bees, then supply chest.
+-- Checks princessStorage first, then droneBuffer for princesses.
+-- Bees are checked for required traits before entering the apiary.
 -- @param name Peripheral name
 -- @param p Wrapped peripheral
 -- @param config BeeOS config
@@ -116,46 +129,50 @@ function apiary.tryRestart(name, p, config)
   local droneBuffer = config.chests.droneBuffer
   if not droneBuffer then return false end
 
-  local bufferPeri = peripheral.wrap(droneBuffer)
-  if not bufferPeri then return false end
-
-  local bufferSize = bufferPeri.size and bufferPeri.size() or 0
-
-  -- Find a princess in the buffer
-  local princessSlot = nil
-  for slot = 1, bufferSize do
-    if bee.isPrincess(bufferPeri, slot) then
-      if targetSpecies then
-        local info = bee.inspect(bufferPeri, slot)
-        if info and info.species == targetSpecies then
-          princessSlot = slot
-          break
-        end
-      else
-        princessSlot = slot
-        break
-      end
-    end
-  end
-
+  -- Search for a princess: check princessStorage first, then droneBuffer
+  local princessSlot, princessSource = apiary.findPrincess(config, targetSpecies)
   if not princessSlot then return false end
 
-  -- Find a matching drone
-  local droneSlot = nil
-  local princessInfo = bee.inspect(bufferPeri, princessSlot)
+  -- Check princess traits — if missing, route to imprinter instead
+  local sourcePeri = peripheral.wrap(princessSource)
+  if not sourcePeri then return false end
+
+  local princessInfo = bee.inspect(sourcePeri, princessSlot)
+  if princessInfo and imprinter.needsImprinting(princessInfo, config) then
+    -- Move to drone buffer for imprinter pickup (if not already there)
+    if princessSource ~= droneBuffer then
+      inventory.move(princessSource, princessSlot, droneBuffer)
+    end
+    tracker.addLog("Princess " .. (princessInfo.species or "?") ..
+      " needs traits, routing to imprinter")
+    return false
+  end
+
+  -- Find a matching drone in drone buffer
+  local bufferPeri = peripheral.wrap(droneBuffer)
+  if not bufferPeri then return false end
+  local bufferSize = bufferPeri.size and bufferPeri.size() or 0
+
   local wantSpecies = targetSpecies or (princessInfo and princessInfo.species)
 
+  local droneSlot = nil
   for slot = 1, bufferSize do
-    if slot ~= princessSlot and bee.isDrone(bufferPeri, slot) then
+    if bee.isDrone(bufferPeri, slot) then
       if wantSpecies then
         local info = bee.inspect(bufferPeri, slot)
         if info and info.species == wantSpecies then
+          -- Check drone traits too
+          if not imprinter.needsImprinting(info, config) then
+            droneSlot = slot
+            break
+          end
+        end
+      else
+        local info = bee.inspect(bufferPeri, slot)
+        if info and not imprinter.needsImprinting(info, config) then
           droneSlot = slot
           break
         end
-      else
-        droneSlot = slot
-        break
       end
     end
   end
@@ -164,10 +181,8 @@ function apiary.tryRestart(name, p, config)
 
   -- Move princess to slot 1, drone to slot 2 of the apiary
   -- (Slot numbers may need adjustment after Phase 0 testing)
-  local movedPrincess = inventory.move(droneBuffer, princessSlot, name, 1)
+  local movedPrincess = inventory.move(princessSource, princessSlot, name, 1)
   if movedPrincess > 0 then
-    -- Need to re-find drone slot in case items shifted
-    -- (pushItems shouldn't shift other slots, but be safe)
     local movedDrone = inventory.move(droneBuffer, droneSlot, name, 2)
     if movedDrone > 0 then
       return true
@@ -175,6 +190,42 @@ function apiary.tryRestart(name, p, config)
   end
 
   return false
+end
+
+--- Find a princess in princessStorage or droneBuffer.
+-- @param config BeeOS config
+-- @param targetSpecies Optional species filter
+-- @return slot, sourceName or nil, nil
+function apiary.findPrincess(config, targetSpecies)
+  -- Check princessStorage first
+  local sources = {}
+  if config.chests.princessStorage then
+    sources[#sources + 1] = config.chests.princessStorage
+  end
+  if config.chests.droneBuffer then
+    sources[#sources + 1] = config.chests.droneBuffer
+  end
+
+  for _, sourceName in ipairs(sources) do
+    local peri = peripheral.wrap(sourceName)
+    if peri then
+      local size = peri.size and peri.size() or 0
+      for slot = 1, size do
+        if bee.isPrincess(peri, slot) then
+          if targetSpecies then
+            local info = bee.inspect(peri, slot)
+            if info and info.species == targetSpecies then
+              return slot, sourceName
+            end
+          else
+            return slot, sourceName
+          end
+        end
+      end
+    end
+  end
+
+  return nil, nil
 end
 
 --- Get a list of all apiary statuses for display.
