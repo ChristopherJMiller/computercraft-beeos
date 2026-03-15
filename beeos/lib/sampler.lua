@@ -722,7 +722,14 @@ end
 -- @param config BeeOS config
 function sampler.onCraftDone(config)
   local outputChest = config.turtle.outputChest
-  if not outputChest then return end
+  if not outputChest then
+    -- Only log once to avoid spam (0.5s polling)
+    if not sampler._loggedNoOutputChest then
+      tracker.addLog("Cannot collect template: turtle.outputChest not set")
+      sampler._loggedNoOutputChest = true
+    end
+    return
+  end
 
   local items = inventory.listItems(outputChest)
   for _, item in ipairs(items) do
@@ -765,16 +772,5 @@ function sampler.onCraftDone(config)
   end
 end
 
---- Coroutine that listens for craft_done messages from the turtle.
--- Run this via parallel alongside other loops.
--- @param config BeeOS config
-function sampler.turtleListener(config)
-  while true do
-    local _, message = rednet.receive(TURTLE_PROTOCOL)
-    if message == "craft_done" then
-      sampler.onCraftDone(config)
-    end
-  end
-end
 
 return sampler

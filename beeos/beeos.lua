@@ -257,34 +257,27 @@ local function samplerLoop()
       end
 
       -- Template crafting: one craft per loop (single turtle)
-      -- Discovery needs first, then background
-      local crafted = false
+      -- Build ordered queue: discovery needs first, then background
+      local templateQueue = {}
       for species in pairs(discoveryNeeds) do
-        if not crafted then
-          local data = tracker.catalog[species]
-          if data and data.samples >= 1 and data.templates == 0 then
-            local tok, tret = pcall(sampler.requestTemplate, species,
-              machines, config)
-            if not tok then
-              tracker.addLog("Template craft error: " .. tostring(tret))
-            elseif tret then
-              crafted = true
-            end
-          end
+        local data = tracker.catalog[species]
+        if data and data.samples >= 1 and data.templates == 0 then
+          templateQueue[#templateQueue + 1] = species
         end
       end
-      if not crafted then
-        for species, data in pairs(tracker.catalog) do
-          if not crafted
-              and data.samples >= 1 and data.templates == 0 then
-            local tok, tret = pcall(sampler.requestTemplate, species,
-              machines, config)
-            if not tok then
-              tracker.addLog("Template craft error: " .. tostring(tret))
-            elseif tret then
-              crafted = true
-            end
-          end
+      for species, data in pairs(tracker.catalog) do
+        if data.samples >= 1 and data.templates == 0
+            and not discoveryNeeds[species] then
+          templateQueue[#templateQueue + 1] = species
+        end
+      end
+      for _, species in ipairs(templateQueue) do
+        local tok, tret = pcall(sampler.requestTemplate, species,
+          machines, config)
+        if not tok then
+          tracker.addLog("Template craft error: " .. tostring(tret))
+        elseif tret then
+          break  -- one craft per loop
         end
       end
 
@@ -938,10 +931,6 @@ local function main()
   print()
 
   -- Run all loops in parallel
-  local function turtleListenerLoop()
-    sampler.turtleListener(config)
-  end
-
   parallel.waitForAny(
     trackerLoop,
     apiaryLoop,
@@ -954,8 +943,7 @@ local function main()
     traitExportLoop,
     displayLoop,
     touchLoop,
-    terminalLoop,
-    turtleListenerLoop
+    terminalLoop
   )
 
   -- Graceful shutdown: extract items from machines
