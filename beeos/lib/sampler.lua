@@ -621,9 +621,12 @@ function sampler.requestTemplate(species, machines, config)
   end
 
   -- Send both to crafting turtle
-  local turtleName = sampler.findTurtle(config)
+  local turtleName = sampler.findTurtle(config, machines)
   if not turtleName then
-    tracker.addLog("Cannot craft template: no crafting turtle found")
+    -- List peripherals to help diagnose the name
+    local names = peripheral.getNames()
+    tracker.addLog("Cannot craft template: no turtle found on network"
+      .. " (" .. #names .. " peripherals)")
     return false
   end
 
@@ -651,13 +654,20 @@ function sampler.requestTemplate(species, machines, config)
 end
 
 --- Find the crafting turtle on the wired network.
--- Uses config override or auto-detects by peripheral name.
+-- Uses config override, then machines table, then peripheral scan.
 -- @param config BeeOS config
+-- @param machines Optional table from network.scan()
 -- @return Peripheral name or nil
-function sampler.findTurtle(config)
+function sampler.findTurtle(config, machines)
   if config.turtle.name then
     return config.turtle.name
   end
+  -- Check network scan results
+  if machines and machines.turtle then
+    local name = next(machines.turtle)
+    if name then return name end
+  end
+  -- Fallback: raw peripheral scan
   for _, name in ipairs(peripheral.getNames()) do
     if name:find("turtle") then
       return name

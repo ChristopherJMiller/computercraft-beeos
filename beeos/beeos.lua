@@ -251,6 +251,9 @@ local function samplerLoop()
             discovery.blockedParents[species] = true
           end
         end
+        discovery.needs = discoveryNeeds
+      else
+        discovery.needs = {}
       end
 
       -- Route drones to samplers (discovery-needed species first)

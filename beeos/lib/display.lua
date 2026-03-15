@@ -511,6 +511,18 @@ local function drawDiscovery(mon, w, h, startY)
     y = y + 1
   end
 
+  -- Discovery needs
+  local needs = discovery.needs or {}
+  local needsList = {}
+  for sp, need in pairs(needs) do
+    needsList[#needsList + 1] = sp .. "=" .. need
+  end
+  if #needsList > 0 and y + 1 <= h then
+    drawText(mon, 1, y, "Needs:    ", colors.lightGray, colors.black)
+    drawText(mon, 11, y, table.concat(needsList, ", "), colors.orange)
+    y = y + 1
+  end
+
   if progress.currentTarget then
     y = y + 1
     drawText(mon, 1, y, "Target:  ", colors.lightGray, colors.black)
