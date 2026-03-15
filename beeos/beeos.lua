@@ -101,13 +101,13 @@ local function trackerLoop()
   tracker.restore()
   while running do
     if config.layers.tracker then
-      tracker.addLog("Tracker: scanning inventories")
-      local ok, err = pcall(tracker.scan, machines)
+      local ok, invCount, itemCount = pcall(tracker.scan, machines)
       if ok then
         local stats = tracker.stats()
-        tracker.addLog("Tracker: " .. stats.discovered .. " species cataloged")
+        tracker.addLog("Tracker: " .. stats.discovered .. " species, " ..
+          (itemCount or 0) .. " items in " .. (invCount or 0) .. " inventories")
       else
-        tracker.addLog("Tracker error: " .. tostring(err))
+        tracker.addLog("Tracker error: " .. tostring(invCount))
       end
     end
     sleep(config.timing.trackerInterval)
@@ -543,6 +543,9 @@ local function main()
       end
     end
   end
+
+  -- Log startup
+  tracker.addLog("BeeOS starting up")
 
   -- Initial network scan
   rescanNetwork()

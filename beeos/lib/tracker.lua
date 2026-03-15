@@ -58,7 +58,11 @@ function tracker.scan(machines)
     allInventories[name] = p
   end
 
+  local inventoryCount = 0
+  local itemCount = 0
+
   for periName, p in pairs(allInventories) do
+    inventoryCount = inventoryCount + 1
     local size = p.size and p.size() or 0
     for slot = 1, size do
       local meta
@@ -66,6 +70,7 @@ function tracker.scan(machines)
         meta = p.getItemMeta(slot)
       end
       if meta then
+        itemCount = itemCount + 1
         local name = meta.name or ""
 
         -- Check for bees
@@ -133,6 +138,8 @@ function tracker.scan(machines)
   -- Persist
   state.save("catalog", catalog)
   state.save("log", tracker.log)
+
+  return inventoryCount, itemCount
 end
 
 --- Get the status color for a species.
