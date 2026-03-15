@@ -370,8 +370,122 @@ local function walkAll(peri, speciesList)
   term.setTextColor(colors.white)
 end
 
+--- Scan a chest and detect samples/templates using the same logic as tracker.
+-- @param periName Peripheral name
+-- @return table { samples = { [species] = count }, templates = { [species] = count },
+--                 unknownTemplates = count }
+local function scanChest(periName)
+  local result = { samples = {}, templates = {}, unknownTemplates = 0 }
+  local peri = peripheral.wrap(periName)
+  if not peri or not peri.size then return result end
+  local templateMap = stateLoad("template_hashes", {})
+  for slot = 1, peri.size() do
+    local meta = peri.getItemMeta and peri.getItemMeta(slot)
+    if meta then
+      local name = meta.name or ""
+      local display = meta.displayName or ""
+      if name:find("gene_sample") and not name:find("gene_sample_blank") then
+        -- Same pattern as tracker.lua:125
+        local sp = display:match("Species:%s*(.+)$")
+        if sp then
+          result.samples[sp] = (result.samples[sp] or 0) + (meta.count or 1)
+        end
+      elseif name:find("gene_template") then
+        -- Same logic as tracker.lua:133-134
+        local sp = templateMap[meta.nbtHash]
+        if sp then
+          result.templates[sp] = (result.templates[sp] or 0) + (meta.count or 1)
+        else
+          result.unknownTemplates = result.unknownTemplates + (meta.count or 1)
+        end
+      end
+    end
+  end
+  return result
+end
+
 -- Main
-if args[1] == "list" then
+if args[1] == "status" then
+  -- Load config to find chest names
+  local configFn = loadfile("config.lua")
+  if not configFn then
+    printError("Cannot load config.lua (run from BeeOS root dir)")
+    return
+  end
+  local cfg = configFn()
+
+  local chests = {}
+  if cfg.chests.sampleStorage then
+    chests[#chests + 1] = { name = cfg.chests.sampleStorage, label = "Sample Storage" }
+  end
+  if cfg.chests.templateOutput then
+    chests[#chests + 1] = { name = cfg.chests.templateOutput, label = "Template Output" }
+  end
+  if #chests == 0 then
+    printError("No sampleStorage or templateOutput chests configured.")
+    return
+  end
+
+  -- Merge results from all chests
+  local allSamples = {}
+  local allTemplates = {}
+  local totalUnknown = 0
+  for _, chest in ipairs(chests) do
+    term.setTextColor(colors.lightGray)
+    print("Scanning " .. chest.label .. " (" .. chest.name .. ")...")
+    local data = scanChest(chest.name)
+    for sp, n in pairs(data.samples) do
+      allSamples[sp] = (allSamples[sp] or 0) + n
+    end
+    for sp, n in pairs(data.templates) do
+      allTemplates[sp] = (allTemplates[sp] or 0) + n
+    end
+    totalUnknown = totalUnknown + data.unknownTemplates
+  end
+
+  -- Collect all species seen
+  local allSpecies = {}
+  local seen = {}
+  for sp in pairs(allSamples) do
+    if not seen[sp] then seen[sp] = true; allSpecies[#allSpecies + 1] = sp end
+  end
+  for sp in pairs(allTemplates) do
+    if not seen[sp] then seen[sp] = true; allSpecies[#allSpecies + 1] = sp end
+  end
+  table.sort(allSpecies)
+
+  print()
+  term.setTextColor(colors.yellow)
+  print("Species       Samples  Templates")
+  term.setTextColor(colors.white)
+  print(string.rep("-", 35))
+
+  for _, sp in ipairs(allSpecies) do
+    local s = allSamples[sp] or 0
+    local t = allTemplates[sp] or 0
+    -- Color: green if has both, orange if missing template, white otherwise
+    if s >= 1 and t >= 1 then
+      term.setTextColor(colors.lime)
+    elseif s >= 1 and t == 0 then
+      term.setTextColor(colors.orange)
+    else
+      term.setTextColor(colors.white)
+    end
+    -- Right-align counts
+    local line = sp .. string.rep(" ", math.max(1, 14 - #sp))
+      .. string.format("%3d      %3d", s, t)
+    print(line)
+  end
+
+  if totalUnknown > 0 then
+    term.setTextColor(colors.red)
+    print()
+    print(totalUnknown .. " template(s) with unknown hash (run 'learn' to fix)")
+  end
+
+  term.setTextColor(colors.white)
+  return
+elseif args[1] == "list" then
   local map = stateLoad("template_hashes", {})
   local count = 0
   for _ in pairs(map) do count = count + 1 end
@@ -381,8 +495,7 @@ if args[1] == "list" then
   end
   -- Build set of known valid species for validation
   local knownSpecies = {}
-  for sp in pairs(stateLoad("discovered", {})) do knownSpecies[sp] = true end
-  for sp in pairs(stateLoad("catalog", {})) do knownSpecies[sp] = true end
+  for _, sp in ipairs(buildSpeciesList()) do knownSpecies[sp] = true end
 
   term.setTextColor(colors.yellow)
   print("Known templates (" .. count .. "):")
@@ -437,11 +550,10 @@ elseif args[1] == "clear" then
   end
   return
 elseif args[1] == "prune" then
-  -- Remove entries whose species aren't in discovered/catalog
+  -- Remove entries whose species aren't in the full species list
   local map = stateLoad("template_hashes", {})
   local knownSpecies = {}
-  for sp in pairs(stateLoad("discovered", {})) do knownSpecies[sp] = true end
-  for sp in pairs(stateLoad("catalog", {})) do knownSpecies[sp] = true end
+  for _, sp in ipairs(buildSpeciesList()) do knownSpecies[sp] = true end
   local removed = 0
   for hash, species in pairs(map) do
     if not knownSpecies[species] then
