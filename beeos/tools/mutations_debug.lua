@@ -1,35 +1,11 @@
 -- BeeOS Mutation Debug Tool
--- Outputs to monitor (if available) for more space.
--- Tests each Plethora/Forestry method to diagnose getMutationsList errors.
+-- Tests each Plethora/Forestry method per species root.
+-- Full errors written to beeos_mutations_error.log.
 
--- Set up output: use monitor if available, fall back to terminal
-local out = term
-for _, name in ipairs(peripheral.getNames()) do
-  if peripheral.getType(name) == "monitor" then
-    local mon = peripheral.wrap(name)
-    mon.setTextScale(0.5)
-    mon.clear()
-    mon.setCursorPos(1, 1)
-    out = mon
-    print("Output on monitor: " .. name)
-    break
-  end
-end
+print("=== Mutation Debug ===")
 
-local line = 0
-local function log(text, color)
-  line = line + 1
-  out.setCursorPos(1, line)
-  if color and out.setTextColor then out.setTextColor(color) end
-  out.write(text or "")
-  if out == term then print() end  -- terminal needs newline
-end
-
-log("=== Mutation Debug ===", colors.yellow)
-log("")
-
--- 1. Find analyzer peripheral
-log("1. Scanning peripherals...", colors.white)
+-- 1. Find analyzer
+print("1. Scanning...")
 local analyzerName, analyzer
 for _, name in ipairs(peripheral.getNames()) do
   local methods = peripheral.getMethods(name)
@@ -46,33 +22,31 @@ for _, name in ipairs(peripheral.getNames()) do
 end
 
 if not analyzer then
-  log("   NO analyzer with getMutationsList!", colors.red)
-  log("   Connect Forestry Analyzer via modem", colors.lightGray)
+  print("  No analyzer found!")
   return
 end
-log("   Found: " .. analyzerName, colors.lime)
-log("")
+print("  " .. analyzerName)
 
--- 2. Get species roots
-log("2. getSpeciesRoots()", colors.white)
+-- 2. Get roots
+print("2. getSpeciesRoots()")
 local ok, roots = pcall(analyzer.getSpeciesRoots)
 if not ok then
-  log("   FAIL: " .. tostring(roots), colors.red)
+  print("  FAIL: " .. tostring(roots))
   return
 end
 
 local rootList = {}
-if type(roots) == "table" then
-  for _, v in pairs(roots) do
-    rootList[#rootList + 1] = tostring(v)
-  end
+for _, v in pairs(roots) do
+  rootList[#rootList + 1] = tostring(v)
 end
 table.sort(rootList)
-log("   OK: " .. #rootList .. " roots", colors.lime)
-log("")
+print("  " .. #rootList .. " roots")
 
--- 3. Test getMutationsList on each root
-log("3. getMutationsList per root:", colors.white)
+-- 3. Test getMutationsList per root
+print("3. getMutationsList:")
+local logLines = { "=== Mutation Debug Log ===" }
+logLines[#logLines + 1] = "Analyzer: " .. analyzerName
+
 for i, root in ipairs(rootList) do
   local ok2, res = pcall(analyzer.getMutationsList, root)
   if ok2 then
@@ -80,73 +54,45 @@ for i, root in ipairs(rootList) do
     if type(res) == "table" then
       for _ in pairs(res) do count = count + 1 end
     end
-    log("   3." .. i .. " " .. root .. ": OK (" .. count .. ")", colors.lime)
+    term.setTextColor(colors.lime)
+    print("  3." .. i .. " " .. root .. ": " .. count)
+    logLines[#logLines + 1] = root .. ": OK (" .. count .. ")"
   else
     local err = tostring(res)
-    log("   3." .. i .. " " .. root .. ": FAIL", colors.red)
-    -- Print error across multiple lines (monitor has width limits)
-    local maxW = 50
-    while #err > 0 do
-      log("      " .. err:sub(1, maxW), colors.orange)
-      err = err:sub(maxW + 1)
-    end
+    term.setTextColor(colors.red)
+    print("  3." .. i .. " " .. root .. ": FAIL")
+    term.setTextColor(colors.orange)
+    -- Show truncated on terminal
+    print("    " .. err:sub(1, 45))
+    if #err > 45 then print("    " .. err:sub(46, 90)) end
+    if #err > 90 then print("    " .. err:sub(91, 135)) end
+    if #err > 135 then print("    ...see log file") end
+    logLines[#logLines + 1] = root .. ": FAILED"
+    logLines[#logLines + 1] = "  " .. err
+    logLines[#logLines + 1] = ""
   end
 end
-log("")
+term.setTextColor(colors.white)
 
--- 4. Test getSpeciesList on rootBees specifically
-log("4. getSpeciesList('rootBees')", colors.white)
+-- 4. Species list check
+print("4. getSpeciesList('rootBees')")
 local ok3, species = pcall(analyzer.getSpeciesList, "rootBees")
 if ok3 then
   local count = 0
   if type(species) == "table" then
     for _ in pairs(species) do count = count + 1 end
   end
-  log("   OK: " .. count .. " species", colors.lime)
-  -- Show first 5
-  if type(species) == "table" then
-    for j = 1, math.min(5, #species) do
-      local sp = species[j]
-      if type(sp) == "table" then
-        log("   [" .. j .. "] " .. tostring(sp.displayName or sp.id or "?"), colors.lightGray)
-      else
-        log("   [" .. j .. "] " .. tostring(sp), colors.lightGray)
-      end
-    end
-    if count > 5 then
-      log("   ... " .. (count - 5) .. " more", colors.lightGray)
-    end
-  end
+  print("  " .. count .. " species")
 else
-  log("   FAIL: " .. tostring(species), colors.red)
+  print("  FAIL: " .. tostring(species):sub(1, 60))
 end
-log("")
 
--- 5. Also write full error to file for copy-paste
-log("5. Full errors written to:", colors.white)
-log("   beeos_mutations_error.log", colors.cyan)
-
+-- Write log file
 local f = fs.open("beeos_mutations_error.log", "w")
 if f then
-  f.write("=== Mutation Debug Log ===\n")
-  f.write("Analyzer: " .. analyzerName .. "\n")
-  f.write("Roots: " .. table.concat(rootList, ", ") .. "\n\n")
-
-  for _, root in ipairs(rootList) do
-    local ok4, res = pcall(analyzer.getMutationsList, root)
-    if ok4 then
-      local count = 0
-      if type(res) == "table" then
-        for _ in pairs(res) do count = count + 1 end
-      end
-      f.write(root .. ": OK (" .. count .. " mutations)\n")
-    else
-      f.write(root .. ": FAILED\n")
-      f.write("  " .. tostring(res) .. "\n\n")
-    end
-  end
+  f.write(table.concat(logLines, "\n"))
   f.close()
 end
-
-log("")
-log("=== Done ===", colors.yellow)
+print("")
+print("Full errors: beeos_mutations_error.log")
+print("Run: edit beeos_mutations_error.log")

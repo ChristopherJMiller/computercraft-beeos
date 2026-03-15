@@ -80,10 +80,11 @@ local function main()
       term.setTextColor(colors.lightGray)
       write("  " .. file.path .. " ")
 
+      local isNew = not fs.exists(file.path)
       local dlOk, err = updater.download(url, file.path)
       if dlOk then
         term.setTextColor(colors.lime)
-        print("OK")
+        print(isNew and "NEW" or "OK")
         success = success + 1
       else
         term.setTextColor(colors.red)

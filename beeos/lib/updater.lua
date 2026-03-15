@@ -111,9 +111,10 @@ function updater.update(printFn)
       local url = updater.BASE_URL .. path
       printFn("  " .. path .. " ... ")
 
+      local isNew = not fs.exists(path)
       local ok, err = updater.download(url, path)
       if ok then
-        printFn("  " .. path .. " OK")
+        printFn("  " .. path .. (isNew and " NEW" or " OK"))
         success = success + 1
       else
         printFn("  " .. path .. " FAIL: " .. (err or "unknown"))
