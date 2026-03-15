@@ -86,6 +86,14 @@ config.discovery = {
   maxConcurrentMutations = 1,
 }
 
+-- === Mutation Data ===
+-- Preset name for static mutation data when getMutationsList API fails.
+-- Preset files live in data/presets/<name>.lua
+-- Set to nil to require live API only (original behavior).
+config.mutations = {
+  preset = "meatballcraft",
+}
+
 -- === Display ===
 config.display = {
   monitorSide = nil,  -- nil = auto-detect, or "left", "right", "top", etc.

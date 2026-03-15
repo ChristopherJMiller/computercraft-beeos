@@ -41,6 +41,7 @@ local MULTI_CHEST_KEYS = {
   ["chests.productOutput"] = true,
   ["chests.surplusOutput"] = true,
   ["machines.analyzer"]      = "Forestry analyzer peripheral",
+  ["mutations.preset"]       = "Mutation data preset (e.g., meatballcraft)",
   ["turtle.name"]            = "Crafting turtle peripheral",
   ["display.monitorSide"]    = "Monitor peripheral name",
   ["thresholds.minSamplesPerSpecies"] = "Min gene samples per species",
@@ -208,13 +209,14 @@ local function discoveryLoop()
       -- Load mutation graph on first enable
       if not loaded then
         loadAttempts = loadAttempts + 1
-        local ok, err = mutations.load(config.machines.analyzer)
+        local ok, err = mutations.load(config.machines.analyzer,
+          config.mutations and config.mutations.preset)
         if ok then
           loaded = true
           tracker.allSpecies = mutations.allSpecies
           discovery.init()
-          tracker.addLog("Mutation graph loaded: " ..
-            #mutations.allSpecies .. " species")
+          tracker.addLog("Mutations loaded (" .. (mutations.source or "?") ..
+            "): " .. #mutations.allSpecies .. " species")
         else
           -- Only log first failure and then every 10th retry
           if loadAttempts == 1 or loadAttempts % 10 == 0 then

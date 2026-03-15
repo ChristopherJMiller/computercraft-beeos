@@ -1,6 +1,7 @@
 -- BeeOS Mutation Graph
 -- Queries the Forestry mutation registry via Plethora and provides
 -- pathfinding through the bee breeding tree.
+-- Falls back to modpack preset files when the API is unavailable.
 
 local network = require("lib.network")
 
@@ -17,119 +18,18 @@ mutations.allSpecies = {}
 -- { [speciesName] = { resultSpecies1, resultSpecies2, ... } }
 mutations.participatesIn = {}
 
---- Query the mutation list from a Forestry Analyzer peripheral.
--- @param analyzerName Peripheral name (or nil to auto-detect)
--- @return boolean success
-function mutations.load(analyzerName)
-  local analyzer
-  if analyzerName then
-    analyzer = peripheral.wrap(analyzerName)
-  else
-    -- Auto-detect: find any peripheral with getMutationsList
-    local _
-    _, analyzer = network.findWithMethod("getMutationsList")
-  end
+-- Data source: "API", "preset:name", or "preset+name" (preset mutations + API species)
+mutations.source = nil
 
-  if not analyzer or not analyzer.getMutationsList then
-    return false, "No analyzer with getMutationsList found"
-  end
-
-  local rootUID = "rootBees"
-
-  -- Query all bee mutations
-  local ok, mutList = pcall(function() return analyzer.getMutationsList(rootUID) end)
-  if not ok then
-    -- Log full error to file for debugging (monitor truncates it)
-    local f = fs.open("beeos_mutations_error.log", "w")
-    if f then
-      f.write("getMutationsList('" .. rootUID .. "') error:\n")
-      f.write(tostring(mutList) .. "\n")
-      f.close()
-    end
-    -- Truncate for display
-    local msg = tostring(mutList)
-    if #msg > 80 then msg = msg:sub(1, 80) .. "..." end
-    return false, "getMutationsList failed: " .. msg
-  end
-
-  -- Also get all species
-  if analyzer.getSpeciesList then
-    local ok2, specList = pcall(function() return analyzer.getSpeciesList(rootUID) end)
-    if ok2 and specList then
-      mutations.allSpecies = {}
-      for i = 1, #specList do
-        local species = specList[i]
-        -- Species entries may be tables or strings depending on Plethora version
-        local name = type(species) == "table" and (species.displayName or species.name) or tostring(species)
-        mutations.allSpecies[#mutations.allSpecies + 1] = name
-      end
-      table.sort(mutations.allSpecies)
-    end
-  end
-
-  -- Build graph
-  mutations.graph = {}
+--- Build the participatesIn reverse map from mutations.graph.
+local function buildReverseMap()
   mutations.participatesIn = {}
-
-  -- Build UID → displayName lookup from species list
-  local uidToName = {}
-  if analyzer.getSpeciesList then
-    local ok3, rawSpecList = pcall(function() return analyzer.getSpeciesList(rootUID) end)
-    if ok3 and rawSpecList then
-      for _, sp in ipairs(rawSpecList) do
-        if type(sp) == "table" and sp.id and sp.displayName then
-          uidToName[sp.id] = sp.displayName
-        end
-      end
-    end
-  end
-
-  for _, mut in ipairs(mutList) do
-    -- Plethora mutation structure:
-    -- { species1 = "uid", species2 = "uid", chance = 0-100,
-    --   result = { species = { id, displayName, ... }, ... } }
-    local parent1 = mut.species1 or mut.allele1 or mut[1]
-    local parent2 = mut.species2 or mut.allele2 or mut[2]
-    local chance = mut.chance or mut[4] or 0
-
-    -- Extract result species from chromosome map
-    local result
-    if type(mut.result) == "table" and type(mut.result.species) == "table" then
-      result = mut.result.species.displayName
-    elseif type(mut.result) == "string" then
-      result = mut.result
-    end
-
-    -- Resolve parent UIDs to display names
-    if type(parent1) == "string" and uidToName[parent1] then
-      parent1 = uidToName[parent1]
-    end
-    if type(parent2) == "string" and uidToName[parent2] then
-      parent2 = uidToName[parent2]
-    end
-    -- Tables from older Plethora versions
-    if type(parent1) == "table" then parent1 = parent1.displayName or parent1.name end
-    if type(parent2) == "table" then parent2 = parent2.displayName or parent2.name end
-
-    -- Normalize chance from 0-100 to 0-1
-    if chance > 1 then chance = chance / 100 end
-
-    if parent1 and parent2 and result then
-      if not mutations.graph[result] then
-        mutations.graph[result] = {}
-      end
-      mutations.graph[result][#mutations.graph[result] + 1] = {
-        parent1 = parent1,
-        parent2 = parent2,
-        chance = chance,
-      }
-
-      -- Build reverse map
-      for _, parent in ipairs({ parent1, parent2 }) do
+  for result, mutList in pairs(mutations.graph) do
+    for _, mut in ipairs(mutList) do
+      for _, parent in ipairs({ mut.parent1, mut.parent2 }) do
         if not mutations.participatesIn[parent] then
           mutations.participatesIn[parent] = {}
         end
-        -- Avoid duplicates
         local found = false
         for _, r in ipairs(mutations.participatesIn[parent]) do
           if r == result then found = true; break end
@@ -140,8 +40,171 @@ function mutations.load(analyzerName)
       end
     end
   end
+end
+
+--- Load species list from an analyzer peripheral.
+-- @param analyzer Wrapped peripheral
+-- @return boolean success
+local function loadSpeciesFromAPI(analyzer)
+  if not analyzer or not analyzer.getSpeciesList then return false end
+  local ok, specList = pcall(function() return analyzer.getSpeciesList("rootBees") end)
+  if not ok or not specList then return false end
+
+  mutations.allSpecies = {}
+  for i = 1, #specList do
+    local species = specList[i]
+    local name = type(species) == "table"
+      and (species.displayName or species.name) or tostring(species)
+    mutations.allSpecies[#mutations.allSpecies + 1] = name
+  end
+  table.sort(mutations.allSpecies)
+  return true
+end
+
+--- Load mutation data from a static preset file.
+-- @param presetName Name of the preset (e.g., "meatballcraft")
+-- @return boolean success, string|nil error
+function mutations.loadPreset(presetName)
+  if not presetName then
+    return false, "No preset configured"
+  end
+
+  local modulePath = "data.presets." .. presetName
+  local ok, preset = pcall(require, modulePath)
+  if not ok then
+    return false, "Cannot load preset '" .. presetName .. "': " .. tostring(preset)
+  end
+
+  if type(preset) ~= "table" or not preset.mutations then
+    return false, "Invalid preset format: " .. presetName
+  end
+
+  -- Assign mutation graph directly (format matches mutations.graph)
+  mutations.graph = preset.mutations
+  buildReverseMap()
+
+  -- Load species from preset as fallback
+  if preset.species then
+    mutations.allSpecies = {}
+    for i = 1, #preset.species do
+      mutations.allSpecies[i] = preset.species[i]
+    end
+    table.sort(mutations.allSpecies)
+  end
 
   return true
+end
+
+--- Query the mutation list from a Forestry Analyzer peripheral,
+--- falling back to a modpack preset if the API fails.
+-- @param analyzerName Peripheral name (or nil to auto-detect)
+-- @param presetName Preset name for fallback (or nil for API-only)
+-- @return boolean success, string|nil error
+function mutations.load(analyzerName, presetName)
+  local analyzer
+  if analyzerName then
+    analyzer = peripheral.wrap(analyzerName)
+  else
+    local _
+    _, analyzer = network.findWithMethod("getMutationsList")
+  end
+
+  -- Try the API first
+  if analyzer and analyzer.getMutationsList then
+    local rootUID = "rootBees"
+    local ok, mutList = pcall(function() return analyzer.getMutationsList(rootUID) end)
+
+    if ok then
+      -- API succeeded: build graph from live data
+      mutations.graph = {}
+
+      -- Build UID -> displayName lookup
+      local uidToName = {}
+      if analyzer.getSpeciesList then
+        local ok2, rawSpecList = pcall(function() return analyzer.getSpeciesList(rootUID) end)
+        if ok2 and rawSpecList then
+          for _, sp in ipairs(rawSpecList) do
+            if type(sp) == "table" and sp.id and sp.displayName then
+              uidToName[sp.id] = sp.displayName
+            end
+          end
+        end
+      end
+
+      for _, mut in ipairs(mutList) do
+        local parent1 = mut.species1 or mut.allele1 or mut[1]
+        local parent2 = mut.species2 or mut.allele2 or mut[2]
+        local chance = mut.chance or mut[4] or 0
+
+        local result
+        if type(mut.result) == "table" and type(mut.result.species) == "table" then
+          result = mut.result.species.displayName
+        elseif type(mut.result) == "string" then
+          result = mut.result
+        end
+
+        if type(parent1) == "string" and uidToName[parent1] then
+          parent1 = uidToName[parent1]
+        end
+        if type(parent2) == "string" and uidToName[parent2] then
+          parent2 = uidToName[parent2]
+        end
+        if type(parent1) == "table" then parent1 = parent1.displayName or parent1.name end
+        if type(parent2) == "table" then parent2 = parent2.displayName or parent2.name end
+
+        if chance > 1 then chance = chance / 100 end
+
+        if parent1 and parent2 and result then
+          if not mutations.graph[result] then
+            mutations.graph[result] = {}
+          end
+          mutations.graph[result][#mutations.graph[result] + 1] = {
+            parent1 = parent1,
+            parent2 = parent2,
+            chance = chance,
+          }
+        end
+      end
+
+      buildReverseMap()
+      loadSpeciesFromAPI(analyzer)
+      mutations.source = "API"
+      return true
+    end
+
+    -- API failed — log the error
+    local f = fs.open("beeos_mutations_error.log", "w")
+    if f then
+      f.write("getMutationsList('" .. rootUID .. "') error:\n")
+      f.write(tostring(mutList) .. "\n")
+      if presetName then
+        f.write("Falling back to preset: " .. presetName .. "\n")
+      end
+      f.close()
+    end
+  end
+
+  -- Fallback: load from preset
+  if presetName then
+    local presetOk, presetErr = mutations.loadPreset(presetName)
+    if not presetOk then
+      return false, presetErr
+    end
+
+    -- Try to get species list from API (works even when getMutationsList fails)
+    if analyzer and loadSpeciesFromAPI(analyzer) then
+      mutations.source = "preset+" .. presetName
+    else
+      mutations.source = "preset:" .. presetName
+    end
+    return true
+  end
+
+  -- No API and no preset
+  if not analyzer or not analyzer.getMutationsList then
+    return false, "No analyzer found and no preset configured"
+  end
+  return false, "getMutationsList failed and no preset configured"
 end
 
 --- Find the best mutation path to produce a target species.

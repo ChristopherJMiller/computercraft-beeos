@@ -42,7 +42,7 @@ local function main()
   print()
 
   -- Create directories
-  local dirs = { "lib", "turtle", "tools", "data" }
+  local dirs = { "lib", "turtle", "tools", "data", "data/presets" }
   for _, dir in ipairs(dirs) do
     if not fs.exists(dir) then
       fs.makeDir(dir)

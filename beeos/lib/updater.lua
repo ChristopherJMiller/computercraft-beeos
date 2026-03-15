@@ -31,6 +31,9 @@ updater.FILES = {
   -- Turtle
   { path = "turtle/crafter.lua", desc = "Crafting turtle" },
 
+  -- Data
+  { path = "data/presets/meatballcraft.lua", desc = "Meatballcraft mutations" },
+
   -- Tools
   { path = "tools/scan.lua", desc = "Network scanner" },
   { path = "tools/inspect.lua", desc = "Bee inspector" },
