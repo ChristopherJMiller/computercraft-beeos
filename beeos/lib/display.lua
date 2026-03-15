@@ -627,7 +627,11 @@ local function drawConfig(mon, w, h, startY)
     y = y + 1
   end
 
-  -- Update button
+  -- Action buttons
+  y = y + 1
+  if y <= h then
+    drawText(mon, 1, y, " [Rescan Network] ", colors.white, colors.blue)
+  end
   y = y + 1
   if y <= h then
     if display.updateStatus then
@@ -873,8 +877,14 @@ function display.handleTouch(x, y)
       end
     end
 
+    -- [Rescan Network] button
+    local rescanY = 4 + 2 + #CONFIG_ROLES + 1
+    if y == rescanY then
+      return { action = "rescan" }
+    end
+
     -- [Update BeeOS] button
-    local updateY = 4 + 2 + #CONFIG_ROLES + 1
+    local updateY = rescanY + 1
     if y == updateY and not display.updateStatus then
       return { action = "update" }
     end

@@ -160,7 +160,9 @@ local function apiaryLoop()
           tracker.addLog("Apiary error (" .. name .. "): " .. tostring(err))
         end
       end
-      tracker.addLog("Apiary: checked " .. count .. " apiaries")
+      if count > 0 then
+        tracker.addLog("Apiary: checked " .. count .. " apiaries")
+      end
     end
     sleep(config.timing.apiaryInterval)
   end
@@ -170,7 +172,6 @@ end
 local function samplerLoop()
   while running do
     if config.layers.sampler then
-      tracker.addLog("Sampler: processing drones")
       local ok, err = pcall(sampler.processDrones, machines, config)
       if not ok then
         tracker.addLog("Sampler error: " .. tostring(err))
@@ -232,8 +233,6 @@ local function discoveryLoop()
           discovery.markDiscovered(species)
         end
 
-        tracker.addLog("Discovery: tick (" .. discovery.state ..
-          (discovery.currentTarget and ", target=" .. discovery.currentTarget or "") .. ")")
         local ok, err = pcall(discovery.tick, machines, config)
         if not ok then
           tracker.addLog("Discovery error: " .. tostring(err))
@@ -248,7 +247,6 @@ end
 local function imprinterLoop()
   while running do
     if config.layers.apiary then
-      tracker.addLog("Imprinter: checking traits")
       local ok, err = pcall(imprinter.tick, machines, config)
       if not ok then
         tracker.addLog("Imprinter error: " .. tostring(err))
@@ -275,7 +273,6 @@ end
 local function surplusLoop()
   while running do
     if config.layers.surplus then
-      tracker.addLog("Surplus: processing")
       local ok, err = pcall(surplus.process, machines, config)
       if not ok then
         tracker.addLog("Surplus error: " .. tostring(err))
@@ -293,9 +290,11 @@ end
 --- Display refresh loop
 local function displayLoop()
   display.init(config)
-  display.machines = machines
 
   while running do
+    -- Sync references each frame (machines table may be replaced by rescan)
+    display.machines = machines
+
     -- Sync layer states to display
     display.layerStates = {
       tracker = config.layers.tracker,
@@ -326,6 +325,8 @@ local function touchLoop()
           local layerStatus = config.layers[action.layer] and "ON" or "OFF"
           tracker.addLog("Layer " .. action.layer .. ": " .. layerStatus)
           state.save("layers", config.layers)
+        elseif action.action == "rescan" then
+          rescanNetwork()
         elseif action.action == "update" then
           display.updateStatus = "Updating..."
           tracker.addLog("Update started (monitor)")
