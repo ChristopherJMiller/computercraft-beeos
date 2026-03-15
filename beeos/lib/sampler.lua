@@ -639,9 +639,12 @@ function sampler.requestTemplate(species, machines, config)
   local movedSample = inventory.move(sampleSource, sampleSlot, turtleName, nil, 1)
 
   if movedBlank > 0 and movedSample > 0 then
-    -- Turtle polls its inventory and crafts automatically
     sampler.pendingTemplate = species
     tracker.addLog("Crafting template: " .. species)
+    -- Wait for turtle to craft (it polls its own inventory),
+    -- then collect the result so we're ready for the next craft
+    sleep(2)
+    sampler.collectFromTurtle(config, machines)
     return true
   end
 
