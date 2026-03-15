@@ -53,6 +53,16 @@ end
 function tracker.scan(machines)
   local catalog = {}
 
+  -- Resolve a species name to an existing catalog key via fuzzy match.
+  -- Returns the existing key if one matches, otherwise the original name.
+  local function resolveSpecies(species)
+    if catalog[species] then return species end
+    for existing in pairs(catalog) do
+      if bee.speciesMatch(existing, species) then return existing end
+    end
+    return species
+  end
+
   -- Helper to ensure a species entry exists
   local function ensure(species)
     if not catalog[species] then
@@ -187,6 +197,7 @@ function tracker.scan(machines)
       -- Extract species name from "Species: <name>" pattern
       local speciesName = bee.normalizeSpecies(displayName:match("Species:%s*(.+)$"))
       if speciesName then
+        speciesName = resolveSpecies(speciesName)
         ensure(speciesName)
         catalog[speciesName].samples =
           catalog[speciesName].samples + (meta.count or 1)
@@ -197,6 +208,7 @@ function tracker.scan(machines)
       local templateMap = state.load("template_hashes", {})
       local templateSpecies = templateMap[meta.nbtHash]
       if templateSpecies then
+        templateSpecies = resolveSpecies(templateSpecies)
         ensure(templateSpecies)
         catalog[templateSpecies].templates =
           catalog[templateSpecies].templates + (meta.count or 1)
