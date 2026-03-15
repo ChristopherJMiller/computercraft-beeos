@@ -17,8 +17,9 @@ apiary.status = {}
 -- @param name Peripheral name of the apiary
 -- @param p Wrapped peripheral
 -- @param config BeeOS config table
+-- @param machines Table from network.scan()
 -- @return Status table for this apiary
-function apiary.check(name, p, config)
+function apiary.check(name, p, config, machines)
   local status = apiary.status[name] or {
     species = nil,
     state = "unknown",
@@ -47,7 +48,7 @@ function apiary.check(name, p, config)
     apiary.extractOutput(name, p, config)
 
     -- Try to restart with available princess + drone
-    local restarted = apiary.tryRestart(name, p, config)
+    local restarted = apiary.tryRestart(name, p, config, machines)
     if restarted then
       status.state = "restarting"
       tracker.addLog("Restarted apiary: " .. name)
@@ -104,12 +105,15 @@ end
 
 --- Try to restart an apiary with a princess and drone.
 -- Checks princessStorage first, then droneBuffer for princesses.
--- Bees are checked for required traits before entering the apiary.
+-- Bees are checked for required traits before entering the apiary;
+-- if traits are missing, the bee is routed to the imprinter with the
+-- apiary-ready template.
 -- @param name Peripheral name
 -- @param p Wrapped peripheral
 -- @param config BeeOS config
+-- @param machines Table from network.scan()
 -- @return boolean True if successfully restarted
-function apiary.tryRestart(name, p, config)
+function apiary.tryRestart(name, p, config, machines)
   -- Check what species this apiary should breed
   local targetSpecies = nil
   if config.apiaryAssignments then
@@ -123,10 +127,11 @@ function apiary.tryRestart(name, p, config)
     bootstrapTarget = next(queue)
   end
 
-  -- Try queens first — they go in slot 1 alone, no drone needed
+  -- Try queens first — they go in slot 1 alone, no drone needed.
+  -- Always try any queen to break it into princess + drone.
   local queenSpecies = targetSpecies or bootstrapTarget
   local queenSlot, queenSource = apiary.findQueen(config, queenSpecies)
-  if not queenSlot and not queenSpecies then
+  if not queenSlot then
     queenSlot, queenSource = apiary.findQueen(config, nil)
   end
   if queenSlot then
@@ -144,13 +149,13 @@ function apiary.tryRestart(name, p, config)
     targetSpecies or bootstrapTarget)
   if not princessSlot then return false end
 
-  -- Check princess traits — if missing, route to imprinter instead
+  -- Check princess traits — if missing, route to imprinter
   local sourcePeri = peripheral.wrap(princessSource)
   if not sourcePeri then return false end
 
   local princessInfo = bee.inspect(sourcePeri, princessSlot)
   if princessInfo and imprinter.needsImprinting(princessInfo, config) then
-    -- Stay in princessStorage — imprinter scans it and will pick her up
+    imprinter.sendToImprinter(princessSource, princessSlot, machines, config)
     return false
   end
 
@@ -168,7 +173,10 @@ function apiary.tryRestart(name, p, config)
       if wantSpecies then
         local info = bee.inspect(bufPeri, match.slot)
         if info and info.species == wantSpecies then
-          if not imprinter.needsImprinting(info, config) then
+          if imprinter.needsImprinting(info, config) then
+            imprinter.sendToImprinter(match.source, match.slot,
+              machines, config)
+          else
             droneSlot = match.slot
             droneSource = match.source
             break
@@ -176,10 +184,15 @@ function apiary.tryRestart(name, p, config)
         end
       else
         local info = bee.inspect(bufPeri, match.slot)
-        if info and not imprinter.needsImprinting(info, config) then
-          droneSlot = match.slot
-          droneSource = match.source
-          break
+        if info then
+          if imprinter.needsImprinting(info, config) then
+            imprinter.sendToImprinter(match.source, match.slot,
+              machines, config)
+          else
+            droneSlot = match.slot
+            droneSource = match.source
+            break
+          end
         end
       end
     end

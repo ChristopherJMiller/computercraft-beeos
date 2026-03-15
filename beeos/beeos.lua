@@ -168,7 +168,7 @@ local function apiaryLoop()
       local count = 0
       for name, p in pairs(machines.apiary or {}) do
         count = count + 1
-        local ok, err = pcall(apiary.check, name, p, config)
+        local ok, err = pcall(apiary.check, name, p, config, machines)
         if not ok then
           tracker.addLog("Apiary error (" .. name .. "): " .. tostring(err))
         end
