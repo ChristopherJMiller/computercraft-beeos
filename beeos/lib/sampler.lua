@@ -138,7 +138,12 @@ function sampler.collectOutput(machines, config)
       local meta = samplerPeri.getItemMeta and samplerPeri.getItemMeta(slot)
       if meta then
         local itemName = meta.name or ""
-        if itemName:find("gene_sample") then
+        if itemName:find("gene_sample_blank") then
+          -- Unused blank sample → return to supply
+          if inventory.first(config.chests.supplyInput) then
+            inventory.moveTo(samplerName, slot, config.chests.supplyInput)
+          end
+        elseif itemName:find("gene_sample") then
           -- Completed gene sample → sample storage
           local moved = inventory.moveTo(samplerName, slot, config.chests.sampleStorage)
           if moved > 0 then
