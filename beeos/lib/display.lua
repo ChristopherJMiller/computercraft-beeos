@@ -184,8 +184,8 @@ local function drawSpecies(mon, w, h, startY)
   drawLine(mon, y, w, "-")
   y = y + 1
 
-  -- Species rows
-  local maxRows = h - y
+  -- Species rows (reserve 3 lines for footer separator, stats, legend)
+  local maxRows = h - y - 3
   for i = 1 + display.scrollOffset, math.min(#species, maxRows + display.scrollOffset) do
     local sp = species[i]
     if sp and y <= h then

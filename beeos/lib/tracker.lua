@@ -107,15 +107,9 @@ function tracker.scan(machines)
           local sampleLabel = (meta.displayName or ""):match("-%s*(.+)$")
             or (meta.displayName or ""):match(":%s*(.+)$")
           if sampleLabel then
-            -- Check if this label matches a known species in the catalog
-            -- (trait samples like "Fastest", "Cave Dwelling" won't match)
+            -- Only count samples for species we've already seen as actual bees
+            -- (trait samples like "Fastest", "Cave Dwelling" are not species)
             if catalog[sampleLabel] then
-              catalog[sampleLabel].samples =
-                catalog[sampleLabel].samples + (meta.count or 1)
-            else
-              -- Might be a new species we haven't seen yet as a bee
-              -- Count it provisionally — tracker will reconcile
-              ensure(sampleLabel)
               catalog[sampleLabel].samples =
                 catalog[sampleLabel].samples + (meta.count or 1)
             end
@@ -127,9 +121,12 @@ function tracker.scan(machines)
           -- Extracting species from template display name
           local templateSpecies = (meta.displayName or ""):match(":%s*(.+)$")
           if templateSpecies then
-            ensure(templateSpecies)
-            catalog[templateSpecies].templates =
-              catalog[templateSpecies].templates + (meta.count or 1)
+            -- Only count templates for species we've already seen as actual bees
+            -- (trait templates like "Cave Dwelling" are not species)
+            if catalog[templateSpecies] then
+              catalog[templateSpecies].templates =
+                catalog[templateSpecies].templates + (meta.count or 1)
+            end
           end
         end
       end
