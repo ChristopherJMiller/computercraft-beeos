@@ -23,6 +23,7 @@ local CONFIGURABLE = {
   ["chests.templateOutput"]  = "Template output chest (AE2 import)",
   ["chests.supplyInput"]     = "Supply input chest (AE2 export)",
   ["chests.princessStorage"] = "Princess overflow chest",
+  ["chests.traitTemplates"]  = "Trait template chest (pre-stocked for imprinter)",
   ["chests.productOutput"]   = "Legacy product output (use export instead)",
   ["chests.surplusOutput"]   = "Legacy surplus output (use export instead)",
 }
@@ -35,6 +36,7 @@ local MULTI_CHEST_KEYS = {
   ["chests.templateOutput"] = true,
   ["chests.supplyInput"] = true,
   ["chests.princessStorage"] = true,
+  ["chests.traitTemplates"] = true,
   ["chests.productOutput"] = true,
   ["chests.surplusOutput"] = true,
   ["machines.analyzer"]      = "Forestry analyzer peripheral",
@@ -250,7 +252,7 @@ end
 --- Surplus management loop
 local function surplusLoop()
   while running do
-    if config.layers.sampler or config.layers.apiary then
+    if config.layers.surplus then
       tracker.addLog("Surplus: processing")
       local ok, err = pcall(surplus.process, machines, config)
       if not ok then
@@ -277,6 +279,7 @@ local function displayLoop()
       apiary = config.layers.apiary,
       sampler = config.layers.sampler,
       discovery = config.layers.discovery,
+      surplus = config.layers.surplus,
     }
 
     local ok, err = pcall(display.render)
@@ -354,6 +357,7 @@ local function terminalLoop()
         { key = "apiary",    num = 1, name = "Apiary Manager" },
         { key = "sampler",   num = 2, name = "Sample & Template Manager" },
         { key = "discovery", num = 3, name = "Auto-Discovery" },
+        { key = "surplus",   num = 4, name = "Surplus Management" },
       }
       print("Layers:")
       for _, info in ipairs(layerInfo) do
@@ -378,7 +382,7 @@ local function terminalLoop()
         tracker.addLog("Layer " .. layer .. ": ON (terminal)")
       else
         print("Unknown layer: " .. layer)
-        print("Available: tracker, apiary, sampler, discovery")
+        print("Available: tracker, apiary, sampler, discovery, surplus")
       end
 
     elseif cmd == "disable" and parts[2] then
@@ -430,6 +434,10 @@ local function terminalLoop()
           desc = "Loads the mutation graph, finds undiscovered"
             .. " species, and breeds them in the Mutatron"
             .. " automatically." },
+        { num = 4, key = "surplus", name = "Surplus Management",
+          desc = "Routes excess drones to the DNA Extractor"
+            .. " and manages surplus inventory above configured"
+            .. " thresholds." },
       }
       for _, l in ipairs(layerDescs) do
         local enabled = config.layers[l.key]

@@ -22,6 +22,7 @@ display.layerStates = {
   apiary = false,
   sampler = false,
   discovery = false,
+  surplus = false,
 }
 
 -- Config tab state
@@ -38,6 +39,7 @@ local CONFIG_ROLES = {
   { key = "chests.templateOutput",   label = "Template Output",  multi = true },
   { key = "chests.supplyInput",      label = "Supply Input",     multi = true },
   { key = "chests.princessStorage",  label = "Princess Store",   multi = true },
+  { key = "chests.traitTemplates",  label = "Trait Templates",  multi = true },
   { key = "turtle.name",            label = "Turtle" },
   { key = "machines.analyzer",      label = "Analyzer" },
 }
@@ -145,6 +147,7 @@ local function drawToggles(mon, w, y)
     { id = "apiary", label = "Apiary" },
     { id = "sampler", label = "Sample" },
     { id = "discovery", label = "Disco" },
+    { id = "surplus", label = "Surpl" },
   }
 
   local x = 1
@@ -624,6 +627,7 @@ function display.handleTouch(x, y)
       { 19, 29, "apiary" },
       { 30, 41, "sampler" },
       { 42, 52, "discovery" },
+      { 53, 63, "surplus" },
     }
     for _, range in ipairs(ranges) do
       if x >= range[1] and x <= range[2] then

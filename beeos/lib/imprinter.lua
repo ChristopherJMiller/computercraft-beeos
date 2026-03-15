@@ -91,20 +91,23 @@ function imprinter.tick(machines, config)
         end
 
       elseif itemName:find("bee_") then
-        -- Got a bee back — check if it still needs traits
+        -- Got a bee back — route princesses to princessStorage, drones to droneBuffer
         local info = bee.inspect(imp, slot)
         if info then
+          local isPrincess = itemName:find("bee_princess") or itemName:find("bee_queen")
+          local dest = isPrincess and config.chests.princessStorage or config.chests.droneBuffer
+
           if imprinter.needsImprinting(info, config) then
-            -- Still missing traits — move to drone buffer for re-routing
-            if inventory.first(config.chests.droneBuffer) then
-              inventory.moveTo(imprinterName, slot, config.chests.droneBuffer)
+            -- Still missing traits — re-queue to appropriate buffer
+            if inventory.first(dest) then
+              inventory.moveTo(imprinterName, slot, dest)
               tracker.addLog("Re-queuing " .. (info.species or "?") ..
                 " (still needs: " .. (imprinter.getMissingTrait(info, config) or "?") .. ")")
             end
           else
-            -- All traits good — send to drone buffer for apiary routing
-            if inventory.first(config.chests.droneBuffer) then
-              inventory.moveTo(imprinterName, slot, config.chests.droneBuffer)
+            -- All traits good — route to appropriate buffer for apiary pickup
+            if inventory.first(dest) then
+              inventory.moveTo(imprinterName, slot, dest)
               tracker.addLog("Imprinted: " .. (info.species or "?") .. " traits complete")
             end
           end
@@ -113,10 +116,17 @@ function imprinter.tick(machines, config)
     end
   end
 
-  -- Look for bees in drone buffer that need imprinting
-  if not inventory.first(config.chests.droneBuffer) then return end
+  -- Look for bees in droneBuffer + princessStorage that need imprinting
+  local searchChests = {}
+  for _, n in ipairs(inventory.normalize(config.chests.droneBuffer)) do
+    searchChests[#searchChests + 1] = n
+  end
+  for _, n in ipairs(inventory.normalize(config.chests.princessStorage)) do
+    searchChests[#searchChests + 1] = n
+  end
+  if #searchChests == 0 then return end
 
-  local beeMatches = inventory.findAcross(config.chests.droneBuffer, function(meta)
+  local beeMatches = inventory.findAcross(searchChests, function(meta)
     return (meta.name or ""):find("bee_") ~= nil
   end)
 
@@ -128,11 +138,14 @@ function imprinter.tick(machines, config)
         local traitName = imprinter.getMissingTrait(info, config)
         if not traitName then break end
 
-        -- Find a template for this trait across supplyInput + sampleStorage
+        -- Find a template for this trait: traitTemplates first, then supplyInput, sampleStorage
         local templateSlot = nil
         local templateSource = nil
 
         local templateChests = {}
+        for _, n in ipairs(inventory.normalize(config.chests.traitTemplates)) do
+          templateChests[#templateChests + 1] = n
+        end
         for _, n in ipairs(inventory.normalize(config.chests.supplyInput)) do
           templateChests[#templateChests + 1] = n
         end
@@ -171,13 +184,18 @@ function imprinter.tick(machines, config)
         end
 
         -- Load imprinter: bee + template + labware
-        -- Slot assignments need Phase 0 verification
+        -- Slot assignments need Phase 0 verification (run tools/slots on imprinter)
         local movedBee = inventory.move(match.source, match.slot, imprinterName)
         if movedBee > 0 then
-          inventory.move(templateSource, templateSlot, imprinterName)
-          inventory.move(labwareSource, labwareSlot, imprinterName)
-          tracker.addLog("Imprinting " .. (info.species or "?") ..
-            ": " .. traitName)
+          local movedTpl = inventory.move(templateSource, templateSlot, imprinterName)
+          local movedLab = inventory.move(labwareSource, labwareSlot, imprinterName)
+          if movedTpl > 0 and movedLab > 0 then
+            tracker.addLog("Imprinting " .. (info.species or "?") ..
+              ": " .. traitName)
+          else
+            tracker.addLog("Imprinter: failed to load template/labware" ..
+              " (tpl=" .. movedTpl .. ", lab=" .. movedLab .. ")")
+          end
         end
 
         -- Only process one bee per tick to avoid overloading

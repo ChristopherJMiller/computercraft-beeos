@@ -127,13 +127,9 @@ function apiary.tryRestart(name, p, config)
 
   local princessInfo = bee.inspect(sourcePeri, princessSlot)
   if princessInfo and imprinter.needsImprinting(princessInfo, config) then
-    -- Move to drone buffer for imprinter pickup (if not already there)
-    local firstBuffer = inventory.first(config.chests.droneBuffer)
-    if princessSource ~= firstBuffer then
-      inventory.moveTo(princessSource, princessSlot, config.chests.droneBuffer)
-    end
+    -- Keep in princessStorage for imprinter pickup (imprinter scans princessStorage)
     tracker.addLog("Princess " .. (princessInfo.species or "?") ..
-      " needs traits, routing to imprinter")
+      " needs traits, waiting for imprinter")
     return false
   end
 
@@ -183,17 +179,14 @@ function apiary.tryRestart(name, p, config)
   return false
 end
 
---- Find a princess in princessStorage or droneBuffer.
+--- Find a princess in princessStorage.
 -- @param config BeeOS config
 -- @param targetSpecies Optional species filter
 -- @return slot, sourceName or nil, nil
 function apiary.findPrincess(config, targetSpecies)
-  -- Check princessStorage first, then droneBuffer
+  -- Only search princessStorage — princesses should never be in droneBuffer
   local sources = {}
   for _, n in ipairs(inventory.normalize(config.chests.princessStorage)) do
-    sources[#sources + 1] = n
-  end
-  for _, n in ipairs(inventory.normalize(config.chests.droneBuffer)) do
     sources[#sources + 1] = n
   end
 
