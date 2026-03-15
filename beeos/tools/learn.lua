@@ -262,6 +262,19 @@ local function learnSlot(peri, s, speciesList)
   end
 
   species = titleCase(species)
+
+  -- Validate against known species
+  local valid = false
+  for _, sp in ipairs(speciesList) do
+    if sp == species then valid = true; break end
+  end
+  if not valid then
+    term.setTextColor(colors.red)
+    print("Unknown species: " .. species)
+    term.setTextColor(colors.white)
+    return false
+  end
+
   map[nbtHash] = species
   stateSave("template_hashes", map)
 
@@ -324,7 +337,97 @@ local function walkAll(peri, speciesList)
 end
 
 -- Main
-if #args >= 1 then
+if args[1] == "list" then
+  local map = stateLoad("template_hashes", {})
+  local count = 0
+  for _ in pairs(map) do count = count + 1 end
+  if count == 0 then
+    print("No template hashes learned yet.")
+    return
+  end
+  -- Build set of known valid species for validation
+  local knownSpecies = {}
+  for sp in pairs(stateLoad("discovered", {})) do knownSpecies[sp] = true end
+  for sp in pairs(stateLoad("catalog", {})) do knownSpecies[sp] = true end
+
+  term.setTextColor(colors.yellow)
+  print("Known templates (" .. count .. "):")
+  for hash, species in pairs(map) do
+    if knownSpecies[species] then
+      term.setTextColor(colors.lime)
+      write("  OK  ")
+    else
+      term.setTextColor(colors.orange)
+      write("  ??  ")
+    end
+    term.setTextColor(colors.white)
+    print(species .. "  (" .. hash:sub(1, 12) .. "...)")
+  end
+  return
+elseif args[1] == "clear" then
+  local target = args[2]
+  if not target then
+    printError("Usage: learn clear <species>  — remove entries for a species")
+    printError("       learn clear all        — remove all entries")
+    return
+  end
+  local map = stateLoad("template_hashes", {})
+  if target == "all" then
+    local count = 0
+    for _ in pairs(map) do count = count + 1 end
+    if count == 0 then
+      print("Nothing to clear.")
+      return
+    end
+    stateSave("template_hashes", {})
+    term.setTextColor(colors.yellow)
+    print("Cleared all " .. count .. " template hash(es).")
+    term.setTextColor(colors.white)
+  else
+    target = titleCase(target)
+    local removed = 0
+    for hash, species in pairs(map) do
+      if species == target then
+        map[hash] = nil
+        removed = removed + 1
+      end
+    end
+    if removed == 0 then
+      printError("No entries found for: " .. target)
+    else
+      stateSave("template_hashes", map)
+      term.setTextColor(colors.yellow)
+      print("Removed " .. removed .. " entry/entries for " .. target .. ".")
+      term.setTextColor(colors.white)
+    end
+  end
+  return
+elseif args[1] == "prune" then
+  -- Remove entries whose species aren't in discovered/catalog
+  local map = stateLoad("template_hashes", {})
+  local knownSpecies = {}
+  for sp in pairs(stateLoad("discovered", {})) do knownSpecies[sp] = true end
+  for sp in pairs(stateLoad("catalog", {})) do knownSpecies[sp] = true end
+  local removed = 0
+  for hash, species in pairs(map) do
+    if not knownSpecies[species] then
+      term.setTextColor(colors.orange)
+      print("  Removing: " .. species .. " (" .. hash:sub(1, 12) .. "...)")
+      map[hash] = nil
+      removed = removed + 1
+    end
+  end
+  if removed > 0 then
+    stateSave("template_hashes", map)
+    term.setTextColor(colors.yellow)
+    print("Pruned " .. removed .. " invalid entry/entries.")
+  else
+    term.setTextColor(colors.lime)
+    print("All entries are valid.")
+  end
+  term.setTextColor(colors.white)
+  return
+elseif #args >= 1 then
   -- Single-slot mode
   local periName = args[1]
   local slot = tonumber(args[2]) or 1
