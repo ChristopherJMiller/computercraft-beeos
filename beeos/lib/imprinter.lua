@@ -23,6 +23,9 @@ imprinter.requeueCount = {}
 function imprinter.needsImprinting(beeInfo, config)
   if not config.traits then return false end
   if not beeInfo then return false end
+  -- Plethora doesn't return genome data for unanalyzed bees, so we
+  -- can't check traits. Skip to avoid an infinite imprinter loop.
+  if beeInfo.analyzed == false then return false end
   local t = config.traits
   if t.caveDwelling and not beeInfo.caveDwelling then return true end
   if t.neverSleeps and not beeInfo.neverSleeps then return true end
