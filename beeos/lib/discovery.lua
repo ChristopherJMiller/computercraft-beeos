@@ -276,8 +276,31 @@ function discovery.prepare(machines, config)
         end
       end
     end
+    -- Fallback: check princessStorage for excess princesses
+    if not princessMatch and inventory.first(config.chests.princessStorage) then
+      local storagePrincesses = inventory.findAcross(
+        config.chests.princessStorage, function(meta)
+          return (meta.name or ""):find("bee_princess") ~= nil
+        end)
+      -- Only take if 2+ princesses remain (leave at least 1 for apiaries)
+      if #storagePrincesses >= 2 then
+        for i = #storagePrincesses, 1, -1 do
+          local m = storagePrincesses[i]
+          local p = peripheral.wrap(m.source)
+          if p then
+            local info = bee.inspect(p, m.slot)
+            if info then
+              princessMatch = m
+              tracker.addLog("Discovery: borrowing princess from storage")
+              break
+            end
+          end
+        end
+      end
+    end
+
     if not princessMatch then
-      goIdle("Need rocky princess")
+      goIdle("No princess available")
       return false
     end
     -- Store for later use
@@ -292,8 +315,45 @@ function discovery.prepare(machines, config)
   if droneMatches[1] then
     droneMatch = droneMatches[1]
   end
+  -- Fallback: check droneBuffer for excess drones
+  if not droneMatch and inventory.first(config.chests.droneBuffer) then
+    local minDrones = config.thresholds.minDronesPerSpecies or 2
+    local droneCounts = {}
+    local dronesBySpecies = {}
+    local bufferDrones = inventory.findAcross(
+      config.chests.droneBuffer, function(meta)
+        return (meta.name or ""):find("bee_drone") ~= nil
+      end)
+    for _, m in ipairs(bufferDrones) do
+      local p = peripheral.wrap(m.source)
+      if p then
+        local info = bee.inspect(p, m.slot)
+        if info and info.species then
+          local count = info.count or 1
+          droneCounts[info.species] = (droneCounts[info.species] or 0) + count
+          if not dronesBySpecies[info.species] then
+            dronesBySpecies[info.species] = {}
+          end
+          local ds = dronesBySpecies[info.species]
+          ds[#ds + 1] = m
+        end
+      end
+    end
+    for species, count in pairs(droneCounts) do
+      if count > minDrones then
+        local slots = dronesBySpecies[species]
+        if slots and slots[1] then
+          droneMatch = slots[#slots]
+          tracker.addLog("Discovery: borrowing " .. species
+            .. " drone from buffer")
+          break
+        end
+      end
+    end
+  end
+
   if not droneMatch then
-    goIdle("Need rocky drone")
+    goIdle("No drone available")
     return false
   end
 
