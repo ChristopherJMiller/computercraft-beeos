@@ -4,6 +4,7 @@
 
 local state = require("lib.state")
 local bee = require("lib.bee")
+local inventory = require("lib.inventory")
 
 local tracker = {}
 
@@ -50,7 +51,8 @@ end
 
 --- Scan all inventories and rebuild the species catalog.
 -- @param machines Table from network.scan()
-function tracker.scan(machines)
+-- @param config Optional BeeOS config (used to exclude traitTemplates from unknown hash count)
+function tracker.scan(machines, config)
   local catalog = {}
 
   -- Resolve a species name to an existing catalog key via fuzzy match.
@@ -134,9 +136,9 @@ function tracker.scan(machines)
               end
 
             elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
-              deferred[#deferred + 1] = meta
+              deferred[#deferred + 1] = { meta = meta, periName = periName }
             elseif name:find("gene_template") then
-              deferred[#deferred + 1] = meta
+              deferred[#deferred + 1] = { meta = meta, periName = periName }
             end
           end
         end
@@ -178,9 +180,9 @@ function tracker.scan(machines)
             end
 
           elseif name:find("gene_sample") and not name:find("gene_sample_blank") then
-            deferred[#deferred + 1] = meta
+            deferred[#deferred + 1] = { meta = meta, periName = periName }
           elseif name:find("gene_template") then
-            deferred[#deferred + 1] = meta
+            deferred[#deferred + 1] = { meta = meta, periName = periName }
           end
         end
       end
@@ -191,7 +193,16 @@ function tracker.scan(machines)
   local unknownTemplates = 0
   local templateMap = state.load("template_hashes", {})
 
-  for _, meta in ipairs(deferred) do
+  -- Build set of traitTemplates chests to exclude from unknown hash count
+  local traitChests = {}
+  if config and config.chests and config.chests.traitTemplates then
+    for _, name in ipairs(inventory.normalize(config.chests.traitTemplates)) do
+      traitChests[name] = true
+    end
+  end
+
+  for _, entry in ipairs(deferred) do
+    local meta = entry.meta
     local name = meta.name or ""
 
     if name:find("gene_sample") then
@@ -214,7 +225,7 @@ function tracker.scan(machines)
         ensure(templateSpecies)
         catalog[templateSpecies].templates =
           catalog[templateSpecies].templates + (meta.count or 1)
-      else
+      elseif not traitChests[entry.periName] then
         unknownTemplates = unknownTemplates + 1
       end
     end

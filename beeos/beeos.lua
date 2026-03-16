@@ -142,7 +142,7 @@ local function trackerLoop()
   local lastSpecies, lastItems, lastInvs = -1, -1, -1
   while running do
     if config.layers.tracker then
-      local ok, invCount, itemCount = pcall(tracker.scan, machines)
+      local ok, invCount, itemCount = pcall(tracker.scan, machines, config)
       if ok then
         local stats = tracker.stats()
         if stats.discovered ~= lastSpecies or itemCount ~= lastItems
@@ -882,7 +882,7 @@ local function main()
 
   -- 3. Immediate inventory scan for fresh data
   write("  Inventory scan... ")
-  local scanOk, invCount, itemCount = pcall(tracker.scan, machines)
+  local scanOk, invCount, itemCount = pcall(tracker.scan, machines, config)
   if scanOk then
     local stats = tracker.stats()
     term.setTextColor(colors.lime)
