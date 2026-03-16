@@ -5,6 +5,7 @@
 local bee = require("lib.bee")
 local inventory = require("lib.inventory")
 local tracker = require("lib.tracker")
+local sampler = require("lib.sampler")
 
 local imprinter = {}
 
@@ -244,6 +245,27 @@ function imprinter.tick(machines, config)
       if idle then
         imprinter.activeSpecies[impName] = nil
         imprinter.hasTraitTemplate[impName] = nil
+      end
+    end
+  end
+
+  -- Clean up: move any species templates out of traitTemplates chest
+  if config.chests.traitTemplates and inventory.first(config.chests.templateOutput) then
+    for _, chestName in ipairs(inventory.normalize(config.chests.traitTemplates)) do
+      local peri = peripheral.wrap(chestName)
+      if peri then
+        local size = peri.size and peri.size() or 0
+        for slot = 1, size do
+          local meta = peri.getItemMeta and peri.getItemMeta(slot)
+          if meta and (meta.name or ""):find("gene_template") then
+            local species = sampler.lookupTemplateHash(meta.nbtHash)
+            if species then
+              inventory.moveTo(chestName, slot, config.chests.templateOutput)
+              tracker.addLog("Moved species template (" .. species
+                .. ") out of traitTemplates")
+            end
+          end
+        end
       end
     end
   end

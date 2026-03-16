@@ -421,10 +421,22 @@ function discovery.prepare(machines, config)
       return false
     end
 
-    inventory.move(template2Source, template2Slot,
+    local movedTpl = inventory.move(template2Source, template2Slot,
       imprinterName, IMP_TEMPLATE)
-    inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
+    if movedTpl == 0 then
+      inventory.moveTo(imprinterName, IMP_BEE, config.chests.droneBuffer)
+      goIdle("Failed to load template: " .. mut.parent2)
+      return false
+    end
+
+    local movedLab = inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
       imprinterName, IMP_LABWARE)
+    if movedLab == 0 then
+      inventory.moveTo(imprinterName, IMP_BEE, config.chests.droneBuffer)
+      inventory.moveTo(imprinterName, IMP_TEMPLATE, config.chests.templateOutput)
+      goIdle("Failed to load labware")
+      return false
+    end
 
     discovery.imprinterName = imprinterName
     discovery.state = "imprinting"
@@ -445,10 +457,23 @@ function discovery.prepare(machines, config)
     return false
   end
 
-  inventory.move(discovery.template1Source, discovery.template1Slot,
+  local movedTpl = inventory.move(discovery.template1Source, discovery.template1Slot,
     imprinterName, IMP_TEMPLATE)
-  inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
+  if movedTpl == 0 then
+    -- Extract bee back out before going idle
+    inventory.moveTo(imprinterName, IMP_BEE, config.chests.princessStorage)
+    goIdle("Failed to load template: " .. mut.parent1)
+    return false
+  end
+
+  local movedLab = inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
     imprinterName, IMP_LABWARE)
+  if movedLab == 0 then
+    inventory.moveTo(imprinterName, IMP_BEE, config.chests.princessStorage)
+    inventory.moveTo(imprinterName, IMP_TEMPLATE, config.chests.templateOutput)
+    goIdle("Failed to load labware")
+    return false
+  end
 
   -- Store references for drone imprinting later
   discovery.droneMatch = droneMatch
@@ -614,9 +639,23 @@ function discovery.checkImprinting(machines, config)
           inventory.first(templateDest))
       end
 
-      inventory.move(t2Source, t2Slot, imprinterName, IMP_TEMPLATE)
-      inventory.move(labwareMatches[1].source, labwareMatches[1].slot,
-        imprinterName, IMP_LABWARE)
+      local movedTpl = inventory.move(t2Source, t2Slot,
+        imprinterName, IMP_TEMPLATE)
+      if movedTpl == 0 then
+        -- Extract drone back out
+        inventory.moveTo(imprinterName, IMP_BEE, config.chests.droneBuffer)
+        goIdle("Failed to load template: " .. mut.parent2)
+        return false
+      end
+
+      local movedLab = inventory.move(labwareMatches[1].source,
+        labwareMatches[1].slot, imprinterName, IMP_LABWARE)
+      if movedLab == 0 then
+        inventory.moveTo(imprinterName, IMP_BEE, config.chests.droneBuffer)
+        inventory.moveTo(imprinterName, IMP_TEMPLATE, config.chests.templateOutput)
+        goIdle("Failed to load labware")
+        return false
+      end
 
       discovery.imprintStep = "drone"
       discovery.machineLoadTime = os.clock()
