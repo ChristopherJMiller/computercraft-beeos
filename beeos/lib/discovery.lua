@@ -36,6 +36,10 @@ discovery.discovered = {}   -- { [species] = true } set of known species
 discovery.imprintStep = nil  -- "princess" or "drone" during imprinting
 discovery.stagedPrincess = nil  -- { source=, slot= } imprinted princess waiting
 discovery.lastConfig = nil  -- cached config for getProgress()
+discovery.machineLoadTime = nil  -- os.clock() when items were loaded into machine
+
+-- How long to wait before declaring a machine stuck (seconds)
+local STUCK_TIMEOUT = 30
 
 --- Get the staging chest config (discoveryStaging, fallback to supplyInput).
 local function getStagingChests(config)
@@ -366,6 +370,7 @@ function discovery.prepare(machines, config)
     discovery.state = "imprinting"
     discovery.imprintStep = "drone"
     discovery.idleReason = nil
+    discovery.machineLoadTime = os.clock()
     return true
   end
 
@@ -394,6 +399,7 @@ function discovery.prepare(machines, config)
   discovery.state = "imprinting"
   discovery.imprintStep = "princess"
   discovery.idleReason = nil
+  discovery.machineLoadTime = os.clock()
   return true
 end
 
@@ -415,8 +421,10 @@ function discovery.checkImprinting(machines, config)
   local meta = imp.getItemMeta and imp.getItemMeta(IMP_OUTPUT)
   if not meta then
     -- Output empty — check if imprinter is actually processing or stuck
+    -- Only check after timeout to let the machine finish processing
+    local elapsed = os.clock() - (discovery.machineLoadTime or os.clock())
     local hasBee = imp.getItemMeta and imp.getItemMeta(IMP_BEE)
-    if not hasBee then
+    if not hasBee and elapsed >= STUCK_TIMEOUT then
       -- No bee and no output = machine is not processing, items were lost
       tracker.addLog("Imprinter stuck: " .. (discovery.imprintStep or "?")
         .. " for " .. (discovery.currentTarget or "?") .. " — recovering")
@@ -551,6 +559,7 @@ function discovery.checkImprinting(machines, config)
         imprinterName, IMP_LABWARE)
 
       discovery.imprintStep = "drone"
+      discovery.machineLoadTime = os.clock()
       return true
 
     elseif discovery.imprintStep == "drone" then
@@ -635,6 +644,7 @@ function discovery.startMutation(machines, config, imprinterName)
   discovery.imprintStep = nil
   discovery.attempts = discovery.attempts + 1
   discovery.mutatronName = mutatronName
+  discovery.machineLoadTime = os.clock()
 
   tracker.addLog("Mutating: attempt " .. discovery.attempts ..
     " for " .. (discovery.currentTarget or "?"))
@@ -667,11 +677,13 @@ function discovery.checkMutatron(machines, config)
   local meta = mutatronPeri.getItemMeta and mutatronPeri.getItemMeta(MUT_OUTPUT)
   if not meta then
     -- Output empty — check if mutatron is actually processing or stuck
+    -- Only check after timeout to let the machine finish processing
+    local elapsed = os.clock() - (discovery.machineLoadTime or os.clock())
     local hasParent1 = mutatronPeri.getItemMeta
       and mutatronPeri.getItemMeta(MUT_PARENT1)
     local hasParent2 = mutatronPeri.getItemMeta
       and mutatronPeri.getItemMeta(MUT_PARENT2)
-    if not hasParent1 or not hasParent2 then
+    if (not hasParent1 or not hasParent2) and elapsed >= STUCK_TIMEOUT then
       -- Missing parent(s) with no output = cannot be processing
       tracker.addLog("Mutatron stuck: " .. (discovery.currentTarget or "?")
         .. " attempt " .. discovery.attempts .. " — recovering")
