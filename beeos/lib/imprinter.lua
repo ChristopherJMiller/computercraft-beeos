@@ -10,6 +10,8 @@ local imprinter = {}
 
 -- Activity tracking: { [machineName] = speciesName }
 imprinter.activeSpecies = {}
+-- Track which imprinters have trait templates loaded (vs species templates)
+imprinter.hasTraitTemplate = {}
 
 --- Check if a bee needs imprinting based on config.traits.
 -- @param beeInfo Table returned by bee.inspect()
@@ -83,10 +85,11 @@ function imprinter.collectOutput(impName, imp, config)
         end
 
       elseif itemName:find("gene_template") then
-        -- Return template to templateOutput (species + trait templates both safe here)
-        if inventory.first(config.chests.templateOutput) then
-          inventory.moveTo(impName, slot, config.chests.templateOutput)
-          tracker.addLog("Recovered template from imprinter")
+        -- Route trait templates back to traitTemplates, species templates to templateOutput
+        local dest = imprinter.hasTraitTemplate[impName]
+          and config.chests.traitTemplates or config.chests.templateOutput
+        if inventory.first(dest) then
+          inventory.moveTo(impName, slot, dest)
           moved = true
         end
 
@@ -216,6 +219,7 @@ function imprinter.sendToImprinter(beeSource, beeSlot, machines, config)
       labwareMatches[1].source, labwareMatches[1].slot, impName)
     if movedTpl > 0 and movedLab > 0 then
       imprinter.activeSpecies[impName] = species
+      imprinter.hasTraitTemplate[impName] = true
       tracker.addLog("Apiary prep: imprinting " .. species
         .. " (" .. impName .. ")")
       return true
@@ -239,6 +243,7 @@ function imprinter.tick(machines, config)
       local idle = imprinter.collectOutput(impName, imp, config)
       if idle then
         imprinter.activeSpecies[impName] = nil
+        imprinter.hasTraitTemplate[impName] = nil
       end
     end
   end
@@ -274,6 +279,7 @@ function imprinter.pollActive(machines, config, duration)
         local idle = imprinter.collectOutput(impName, imp, config)
         if idle then
           imprinter.activeSpecies[impName] = nil
+          imprinter.hasTraitTemplate[impName] = nil
         else
           allIdle = false
         end
