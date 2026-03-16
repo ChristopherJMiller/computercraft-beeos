@@ -414,7 +414,35 @@ function discovery.checkImprinting(machines, config)
   -- Check output slot for result
   local meta = imp.getItemMeta and imp.getItemMeta(IMP_OUTPUT)
   if not meta then
-    return false  -- Still processing
+    -- Output empty — check if imprinter is actually processing or stuck
+    local hasBee = imp.getItemMeta and imp.getItemMeta(IMP_BEE)
+    if not hasBee then
+      -- No bee and no output = machine is not processing, items were lost
+      tracker.addLog("Imprinter stuck: " .. (discovery.imprintStep or "?")
+        .. " for " .. (discovery.currentTarget or "?") .. " — recovering")
+      -- Salvage any remaining items
+      local hasTemplate = imp.getItemMeta and imp.getItemMeta(IMP_TEMPLATE)
+      if hasTemplate then
+        local templateDest = config.chests.templateOutput
+        if inventory.first(templateDest) then
+          inventory.move(imprinterName, IMP_TEMPLATE,
+            inventory.first(templateDest))
+        end
+      end
+      local hasLabware = imp.getItemMeta and imp.getItemMeta(IMP_LABWARE)
+      if hasLabware then
+        local exportChests = inventory.getExportChests(config)
+        if inventory.first(exportChests) then
+          inventory.move(imprinterName, IMP_LABWARE,
+            inventory.first(exportChests))
+        end
+      end
+      -- Reset to preparing so we re-gather materials and retry
+      discovery.state = "preparing"
+      discovery.imprintStep = nil
+      return true
+    end
+    return false  -- Bee present, legitimately processing
   end
 
   local itemName = meta.name or ""
@@ -638,7 +666,37 @@ function discovery.checkMutatron(machines, config)
   -- Check output slot for result
   local meta = mutatronPeri.getItemMeta and mutatronPeri.getItemMeta(MUT_OUTPUT)
   if not meta then
-    return false  -- Still processing
+    -- Output empty — check if mutatron is actually processing or stuck
+    local hasParent1 = mutatronPeri.getItemMeta
+      and mutatronPeri.getItemMeta(MUT_PARENT1)
+    local hasParent2 = mutatronPeri.getItemMeta
+      and mutatronPeri.getItemMeta(MUT_PARENT2)
+    if not hasParent1 or not hasParent2 then
+      -- Missing parent(s) with no output = cannot be processing
+      tracker.addLog("Mutatron stuck: " .. (discovery.currentTarget or "?")
+        .. " attempt " .. discovery.attempts .. " — recovering")
+      -- Salvage any remaining bees back to storage
+      if hasParent1 then
+        inventory.moveTo(mutatronName, MUT_PARENT1,
+          config.chests.princessStorage)
+      end
+      if hasParent2 then
+        inventory.moveTo(mutatronName, MUT_PARENT2,
+          config.chests.droneBuffer)
+      end
+      local hasLabware = mutatronPeri.getItemMeta
+        and mutatronPeri.getItemMeta(MUT_LABWARE)
+      if hasLabware then
+        local exportChests = inventory.getExportChests(config)
+        if inventory.first(exportChests) then
+          inventory.moveTo(mutatronName, MUT_LABWARE, exportChests)
+        end
+      end
+      -- Reset to preparing to re-gather materials
+      discovery.state = "preparing"
+      return true
+    end
+    return false  -- Parents present, legitimately processing
   end
 
   local itemName = meta.name or ""

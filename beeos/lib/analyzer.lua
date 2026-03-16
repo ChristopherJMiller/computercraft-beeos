@@ -99,7 +99,8 @@ function analyzer.tick(machines, config)
       local bufPeri = peripheral.wrap(match.source)
       if bufPeri then
         local info = bee.inspect(bufPeri, match.slot)
-        if info and analyzer.needsAnalysis(info) then
+        if info and analyzer.needsAnalysis(info)
+            and (info.species or ""):lower() ~= "rocky" then
           local moved = inventory.move(match.source, match.slot, anlName)
           if moved > 0 then
             analyzer.activeSpecies[anlName] = info.species or "?"
