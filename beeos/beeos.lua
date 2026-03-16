@@ -795,9 +795,10 @@ end
 local function shutdown()
   tracker.addLog("Shutdown: extracting machine contents")
 
-  -- Apiaries: extract output (princesses, drones, products)
+  -- Apiaries: extract output (princesses, drones, products) and input slots
   for name, p in pairs(machines.apiary or {}) do
     pcall(apiary.extractOutput, name, p, config)
+    pcall(apiary.extractInputs, name, p, config)
   end
 
   -- Samplers: collect completed samples, return spent drones

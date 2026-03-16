@@ -33,13 +33,27 @@ function apiary.check(name, p, config, machines)
   end
 
   if queen then
-    -- Queen is alive, apiary is running
     local species = "Unknown"
     if queen.individual and queen.individual.genome then
       species = queen.individual.genome.active.species.displayName or "Unknown"
     end
     status.species = species
-    status.state = "running"
+
+    -- Check if the queen has required traits; if not, she's stuck
+    local queenInfo = bee.inspect(p, 1)
+    if queenInfo and imprinter.needsImprinting(queenInfo, config) then
+      tracker.addLog("Stuck queen in " .. name .. ": missing traits, extracting")
+      apiary.extractInputs(name, p, config)
+      status.state = "idle"
+
+      local restarted = apiary.tryRestart(name, p, config, machines)
+      if restarted then
+        status.state = "restarting"
+        tracker.addLog("Restarted apiary: " .. name)
+      end
+    else
+      status.state = "running"
+    end
   else
     -- No queen — apiary needs attention
     status.state = "idle"
@@ -103,6 +117,30 @@ function apiary.extractOutput(name, p, config)
   end
 end
 
+--- Extract bees from apiary input slots (for shutdown/recovery).
+-- Only extracts from slots 1-2 (princess/queen and drone inputs).
+-- Does NOT run during normal operation — only during shutdown.
+-- @param name Peripheral name
+-- @param p Wrapped peripheral
+-- @param config BeeOS config
+function apiary.extractInputs(name, p, config)
+  for slot = 1, 2 do
+    local meta = p.getItemMeta and p.getItemMeta(slot)
+    if meta then
+      local itemName = meta.name or ""
+      if itemName:find("bee_princess") or itemName:find("bee_queen") then
+        if inventory.first(config.chests.princessStorage) then
+          inventory.moveTo(name, slot, config.chests.princessStorage)
+        end
+      elseif itemName:find("bee_drone") then
+        if inventory.first(config.chests.droneBuffer) then
+          inventory.moveTo(name, slot, config.chests.droneBuffer)
+        end
+      end
+    end
+  end
+end
+
 --- Try to restart an apiary with a princess and drone.
 -- Checks princessStorage first, then droneBuffer for princesses.
 -- Bees are checked for required traits before entering the apiary;
@@ -135,6 +173,16 @@ function apiary.tryRestart(name, p, config, machines)
     queenSlot, queenSource = apiary.findQueen(config, nil)
   end
   if queenSlot then
+    -- Check queen traits before placing in apiary (mirrors princess path below)
+    local qPeri = peripheral.wrap(queenSource)
+    if qPeri then
+      local queenInfo = bee.inspect(qPeri, queenSlot)
+      if queenInfo and imprinter.needsImprinting(queenInfo, config) then
+        imprinter.sendToImprinter(queenSource, queenSlot, machines, config)
+        return false
+      end
+    end
+
     local movedQueen = inventory.move(queenSource, queenSlot, name, 1)
     if movedQueen > 0 then
       tracker.addLog("Queen placed in apiary: " .. name)
