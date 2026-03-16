@@ -425,16 +425,7 @@ end
 -- @param knownSpecies Set of known species
 -- @return discovered count, total count, reachable count
 function mutations.getCounts(knownSpecies)
-  local discovered = 0
-  for _ in pairs(knownSpecies) do
-    discovered = discovered + 1
-  end
-
-  local total = 0
-  for _ in pairs(mutations.graph) do
-    total = total + 1
-  end
-  -- Add species that appear only as parents (base species)
+  -- Build set of all species in the mutation graph (results + parents)
   local allSpeciesSet = {}
   for result in pairs(mutations.graph) do
     allSpeciesSet[result] = true
@@ -445,8 +436,17 @@ function mutations.getCounts(knownSpecies)
       allSpeciesSet[mut.parent2] = true
     end
   end
-  total = 0
+
+  local total = 0
   for _ in pairs(allSpeciesSet) do total = total + 1 end
+
+  -- Only count discovered species that are actually in the graph
+  local discovered = 0
+  for species in pairs(knownSpecies) do
+    if allSpeciesSet[species] then
+      discovered = discovered + 1
+    end
+  end
 
   -- Count reachable (could be discovered in one step)
   local reachable = 0
