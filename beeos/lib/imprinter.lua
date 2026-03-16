@@ -13,6 +13,8 @@ local imprinter = {}
 imprinter.activeSpecies = {}
 -- Track which imprinters have trait templates loaded (vs species templates)
 imprinter.hasTraitTemplate = {}
+-- Track re-queue counts to detect loops from bad trait templates
+imprinter.requeueCount = {}
 
 --- Check if a bee needs imprinting based on config.traits.
 -- @param beeInfo Table returned by bee.inspect()
@@ -103,13 +105,25 @@ function imprinter.collectOutput(impName, imp, config)
           if imprinter.needsImprinting(info, config) then
             if inventory.first(dest) then
               inventory.moveTo(impName, slot, dest)
-              tracker.addLog("Re-queuing " .. (info.species or "?") ..
-                " (still needs: " .. (imprinter.getMissingTrait(info, config) or "?") .. ")")
+              local sp = info.species or "?"
+              imprinter.requeueCount[sp] = (imprinter.requeueCount[sp] or 0) + 1
+              if imprinter.requeueCount[sp] >= 3 then
+                tracker.addLog("WARNING: " .. sp
+                  .. " failed imprinting 3x — check trait template")
+                imprinter.requeueCount[sp] = 0
+              else
+                tracker.addLog("Re-queuing " .. sp .. " (needs: "
+                  .. (imprinter.getMissingTrait(info, config) or "?")
+                  .. " | cave=" .. tostring(info.caveDwelling)
+                  .. " sleep=" .. tostring(info.neverSleeps)
+                  .. " rain=" .. tostring(info.toleratesRain) .. ")")
+              end
               moved = true
             end
           else
             if inventory.first(dest) then
               inventory.moveTo(impName, slot, dest)
+              imprinter.requeueCount[info.species] = nil
               tracker.addLog("Imprinted: " .. (info.species or "?") .. " traits complete")
               moved = true
             end

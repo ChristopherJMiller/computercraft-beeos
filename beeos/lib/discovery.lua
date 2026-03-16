@@ -8,6 +8,7 @@ local inventory = require("lib.inventory")
 local mutations = require("lib.mutations")
 local tracker = require("lib.tracker")
 local state = require("lib.state")
+local imprinter = require("lib.imprinter")
 
 -- Bootstrap queue: species that need establishment (samples + templates)
 -- Persisted via state module as "bootstrap_queue" = { [species] = true }
@@ -69,6 +70,10 @@ local function goIdle(reason)
   discovery.state = "idle"
   discovery.idleReason = reason
   discovery.imprintStep = nil
+  -- Release imprinter so apiary layer can use it for trait imprinting
+  if discovery.imprinterName then
+    imprinter.activeSpecies[discovery.imprinterName] = nil
+  end
 end
 
 --- Initialize discovery from tracker catalog and persisted state.
@@ -439,6 +444,7 @@ function discovery.prepare(machines, config)
     end
 
     discovery.imprinterName = imprinterName
+    imprinter.activeSpecies[imprinterName] = "disco:" .. (mut.parent2 or "?")
     discovery.state = "imprinting"
     discovery.imprintStep = "drone"
     discovery.idleReason = nil
@@ -480,6 +486,7 @@ function discovery.prepare(machines, config)
   discovery.template2Source = template2Source
   discovery.template2Slot = template2Slot
   discovery.imprinterName = imprinterName
+  imprinter.activeSpecies[imprinterName] = "disco:" .. (mut.parent1 or "?")
 
   discovery.state = "imprinting"
   discovery.imprintStep = "princess"
@@ -531,6 +538,7 @@ function discovery.checkImprinting(machines, config)
         end
       end
       -- Reset to preparing so we re-gather materials and retry
+      imprinter.activeSpecies[imprinterName] = nil
       discovery.state = "preparing"
       discovery.imprintStep = nil
       return true
@@ -549,6 +557,7 @@ function discovery.checkImprinting(machines, config)
     tracker.addLog("Imprint failed: genetic waste for " ..
       (discovery.imprintStep or "?"))
     -- Restart preparation
+    imprinter.activeSpecies[imprinterName] = nil
     discovery.state = "preparing"
     discovery.imprintStep = nil
     return true
@@ -659,6 +668,8 @@ function discovery.checkImprinting(machines, config)
 
       discovery.imprintStep = "drone"
       discovery.machineLoadTime = os.clock()
+      imprinter.activeSpecies[imprinterName] = "disco:"
+        .. (discovery.currentMutation and discovery.currentMutation.parent2 or "?")
       return true
 
     elseif discovery.imprintStep == "drone" then
@@ -718,6 +729,8 @@ function discovery.startMutation(machines, config, imprinterName)
       goIdle("Failed to load drone to mutatron")
       return false
     end
+    -- Imprinter is now empty; release for trait imprinting during mutation
+    imprinter.activeSpecies[imprinterName] = nil
   end
 
   -- Move staged princess to mutatron parent1
@@ -745,8 +758,8 @@ function discovery.startMutation(machines, config, imprinterName)
   discovery.mutatronName = mutatronName
   discovery.machineLoadTime = os.clock()
 
-  tracker.addLog("Mutating: attempt " .. discovery.attempts ..
-    " for " .. (discovery.currentTarget or "?"))
+  tracker.addLog("Attempting " .. (discovery.currentTarget or "?")
+    .. " mutation")
   return true
 end
 
@@ -785,7 +798,7 @@ function discovery.checkMutatron(machines, config)
     if (not hasParent1 or not hasParent2) and elapsed >= STUCK_TIMEOUT then
       -- Missing parent(s) with no output = cannot be processing
       tracker.addLog("Mutatron stuck: " .. (discovery.currentTarget or "?")
-        .. " attempt " .. discovery.attempts .. " — recovering")
+        .. " — recovering")
       -- Salvage any remaining bees back to storage
       if hasParent1 then
         inventory.moveTo(mutatronName, MUT_PARENT1,
