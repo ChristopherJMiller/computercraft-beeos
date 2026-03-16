@@ -178,10 +178,11 @@ local function drawToggles(mon, w, y)
 end
 
 --- Check if a species appears in any value of an activeSpecies table.
+-- Handles "disco:Species" prefixed values from discovery layer.
 local function isActiveIn(activeTable, species)
   if not activeTable then return false end
   for _, sp in pairs(activeTable) do
-    if sp == species then return true end
+    if sp == species or sp == "disco:" .. species then return true end
   end
   return false
 end
