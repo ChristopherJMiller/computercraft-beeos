@@ -102,7 +102,9 @@ function imprinter.collectOutput(impName, imp, config)
           local isPrincess = itemName:find("bee_princess") or itemName:find("bee_queen")
           local dest = isPrincess and config.chests.princessStorage or config.chests.droneBuffer
 
-          if imprinter.needsImprinting(info, config) then
+          if not imprinter.hasTraitTemplate[impName]
+              and imprinter.needsImprinting(info, config) then
+            -- Bee wasn't imprinted with a trait template and still needs traits
             if inventory.first(dest) then
               inventory.moveTo(impName, slot, dest)
               local sp = info.species or "?"
