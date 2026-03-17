@@ -62,17 +62,6 @@ function apiary.check(name, p, config, machines)
         status.state = "restarting"
         tracker.addLog("Restarted breed apiary: " .. name)
       end
-    elseif imprinter.needsImprinting(bee.inspect(p, 1), config) then
-      -- Production mode: queen missing traits, extract and restart
-      tracker.addLog("Stuck queen in " .. name .. ": missing traits, extracting")
-      apiary.extractInputs(name, p, config)
-      status.state = "idle"
-
-      local restarted = apiary.tryRestart(name, p, config, machines)
-      if restarted then
-        status.state = "restarting"
-        tracker.addLog("Restarted apiary: " .. name)
-      end
     else
       status.state = "running"
     end
