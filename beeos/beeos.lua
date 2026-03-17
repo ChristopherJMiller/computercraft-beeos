@@ -25,10 +25,11 @@ local CONFIGURABLE = {
   ["chests.templateOutput"]  = "Template output chest (AE2 import)",
   ["chests.supplyInput"]     = "Supply input chest (AE2 export)",
   ["chests.princessStorage"] = "Princess overflow chest",
-  ["chests.traitTemplates"]  = "Trait template chest (pre-stocked for imprinter)",
   ["chests.discoveryStaging"] = "Discovery staging chest (imprinted bees between steps)",
+  ["chests.apiaryReady"]     = "Apiary-ready chest (trait-imprinted bees)",
   ["chests.productOutput"]   = "Legacy product output (use export instead)",
   ["chests.surplusOutput"]   = "Legacy surplus output (use export instead)",
+  ["machines.traitImprinter"] = "Dedicated trait imprinter (template stays loaded)",
 }
 
 -- Config keys that support multi-chest arrays (use +/- syntax)
@@ -39,8 +40,8 @@ local MULTI_CHEST_KEYS = {
   ["chests.templateOutput"] = true,
   ["chests.supplyInput"] = true,
   ["chests.princessStorage"] = true,
-  ["chests.traitTemplates"] = true,
   ["chests.discoveryStaging"] = true,
+  ["chests.apiaryReady"] = true,
   ["chests.productOutput"] = true,
   ["chests.surplusOutput"] = true,
   ["machines.transposers"]   = "Genetic transposer peripherals",
@@ -58,7 +59,10 @@ local MULTI_CHEST_KEYS = {
 local function loadConfigOverrides()
   local overrides = state.load("config_overrides", {})
   for section, values in pairs(overrides) do
-    if type(config[section]) == "table" and type(values) == "table" then
+    if section == "apiaryAssignments" then
+      -- apiaryAssignments is replaced wholesale, not merged key-by-key
+      config.apiaryAssignments = values
+    elseif type(config[section]) == "table" and type(values) == "table" then
       for k, v in pairs(values) do
         config[section][k] = v
       end
@@ -387,6 +391,12 @@ local function imprinterLoop()
       local ok, err = pcall(imprinter.tick, machines, config)
       if not ok then
         tracker.addLog("Imprinter error: " .. tostring(err))
+      end
+
+      -- Dedicated trait imprinter: proactively imprint bees from princessStorage
+      ok, err = pcall(imprinter.processTraitImprinter, config)
+      if not ok then
+        tracker.addLog("Trait imprinter error: " .. tostring(err))
       end
     end
     imprinter.pollActive(machines, config, config.timing.apiaryInterval)
@@ -771,6 +781,43 @@ local function terminalLoop()
       end
       tracker.addLog("Update: " .. successCount .. " OK, " .. failCount .. " failed")
 
+    elseif cmd == "assign" then
+      if not parts[2] then
+        print("Apiary assignments (use 'assign <apiary> <species|breed|clear>'):")
+        if not config.apiaryAssignments or not next(config.apiaryAssignments) then
+          print("  (none)")
+        else
+          for aName, aVal in pairs(config.apiaryAssignments) do
+            term.setTextColor(aVal == "breed" and colors.cyan or colors.lime)
+            print(string.format("  %-40s %s", aName, aVal))
+          end
+          term.setTextColor(colors.white)
+        end
+      elseif parts[2] and parts[3] then
+        local aName = parts[2]
+        local aVal = table.concat(parts, " ", 3)
+        if not config.apiaryAssignments then
+          config.apiaryAssignments = {}
+        end
+        if aVal == "clear" then
+          config.apiaryAssignments[aName] = nil
+          print("Cleared assignment: " .. aName)
+          tracker.addLog("Apiary unassigned: " .. aName)
+        else
+          config.apiaryAssignments[aName] = aVal
+          term.setTextColor(aVal == "breed" and colors.cyan or colors.lime)
+          print("Assigned " .. aName .. " = " .. aVal)
+          term.setTextColor(colors.white)
+          tracker.addLog("Apiary assigned: " .. aName .. " = " .. aVal)
+        end
+        -- Persist assignments
+        local overrides = state.load("config_overrides", {})
+        overrides.apiaryAssignments = config.apiaryAssignments
+        state.save("config_overrides", overrides)
+      else
+        print("Usage: assign <apiary_name> <species|breed|clear>")
+      end
+
     elseif cmd == "help" then
       print("Commands:")
       print("  status       - Show system status")
@@ -780,6 +827,7 @@ local function terminalLoop()
       print("  enable <l>   - Enable a layer")
       print("  disable <l>  - Disable a layer")
       print("  target <sp>  - Prioritize a species")
+      print("  assign       - View/set apiary assignments")
       print("  config       - View/set configuration")
       print("  update       - Update BeeOS from GitHub")
       print("  rescan       - Rescan network")
@@ -804,20 +852,16 @@ local function shutdown()
   -- Samplers: collect completed samples, return spent drones
   pcall(sampler.collectOutput, machines, config)
 
-  -- Imprinters: collect imprinted bees, waste
-  local imprinters = {}
-  if config.machines.imprinters then
-    for _, name in ipairs(config.machines.imprinters) do
-      imprinters[name] = peripheral.wrap(name)
-    end
-  else
-    imprinters = machines.imprinter or {}
-  end
+  -- Imprinters: collect imprinted bees, waste (excludes dedicated trait imprinter)
+  local imprinters = imprinter.getImprinters(machines, config)
   for impName, imp in pairs(imprinters) do
     if imp then
       pcall(imprinter.collectOutput, impName, imp, config)
     end
   end
+
+  -- Dedicated trait imprinter: extract bees/labware but leave template in slot 1
+  pcall(imprinter.shutdownTraitImprinter, config)
 
   -- Analyzers: collect analyzed bees
   pcall(analyzer.tick, machines, config)

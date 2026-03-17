@@ -5,7 +5,7 @@
 local bee = require("lib.bee")
 local inventory = require("lib.inventory")
 local tracker = require("lib.tracker")
-local sampler = require("lib.sampler")
+
 
 local imprinter = {}
 
@@ -91,11 +91,9 @@ function imprinter.collectOutput(impName, imp, config)
         end
 
       elseif itemName:find("gene_template") then
-        -- Route trait templates back to traitTemplates, species templates to templateOutput
-        local dest = imprinter.hasTraitTemplate[impName]
-          and config.chests.traitTemplates or config.chests.templateOutput
-        if inventory.first(dest) then
-          inventory.moveTo(impName, slot, dest)
+        -- All templates route to templateOutput (AE2 import)
+        if inventory.first(config.chests.templateOutput) then
+          inventory.moveTo(impName, slot, config.chests.templateOutput)
           moved = true
         end
 
@@ -115,7 +113,7 @@ function imprinter.collectOutput(impName, imp, config)
               if imprinter.requeueCount[sp] >= 3 then
                 tracker.addLog("WARNING: " .. sp
                   .. " failed imprinting 3x — check trait template")
-                imprinter.requeueCount[sp] = 0
+                imprinter.requeueCount[sp] = nil
               else
                 tracker.addLog("Re-queuing " .. sp .. " (needs: "
                   .. (imprinter.getMissingTrait(info, config) or "?")
@@ -144,111 +142,196 @@ function imprinter.collectOutput(impName, imp, config)
 end
 
 --- Get all available imprinters (config override or auto-detected).
+-- Excludes the dedicated trait imprinter from the general pool.
 -- @param machines Table from network.scan()
 -- @param config BeeOS config
 -- @return Table of { [name] = wrappedPeripheral }
 function imprinter.getImprinters(machines, config)
+  local dedicated = config.machines.traitImprinter
   local imprinters = {}
   if config.machines.imprinters then
     for _, name in ipairs(config.machines.imprinters) do
-      imprinters[name] = peripheral.wrap(name)
+      if name ~= dedicated then
+        imprinters[name] = peripheral.wrap(name)
+      end
     end
   else
-    imprinters = machines.imprinter or {}
+    for name, imp in pairs(machines.imprinter or {}) do
+      if name ~= dedicated then
+        imprinters[name] = imp
+      end
+    end
   end
   return imprinters
 end
 
---- Find the apiary-ready template in the traitTemplates chest.
+--- Send a bee to the trait imprinter for trait prep (legacy fallback).
+-- With the dedicated trait imprinter, this path is rarely used.
+-- Bees that need traits should be routed through the dedicated imprinter
+-- by going to princessStorage where processTraitImprinter picks them up.
+-- @param beeSource Peripheral name where bee is
+-- @param beeSlot Slot number
+-- @param machines Table from network.scan() (unused, kept for compat)
 -- @param config BeeOS config
--- @return chestName, slot or nil, nil
-function imprinter.findApiaryTemplate(config)
-  if not config.chests.traitTemplates then return nil, nil end
-  local chests = inventory.normalize(config.chests.traitTemplates)
-  for _, chestName in ipairs(chests) do
-    local peri = peripheral.wrap(chestName)
-    if peri then
-      local size = peri.size and peri.size() or 0
-      for slot = 1, size do
-        local meta = peri.getItemMeta and peri.getItemMeta(slot)
-        if meta and (meta.name or ""):find("gene_template")
-            and meta.nbtHash ~= nil then
-          return chestName, slot
+-- @return boolean success
+function imprinter.sendToImprinter(beeSource, beeSlot, machines, config)
+  -- Route to princessStorage so the dedicated trait imprinter picks it up
+  if config.machines.traitImprinter then
+    local bufPeri = peripheral.wrap(beeSource)
+    local itemName = ""
+    if bufPeri then
+      local meta = bufPeri.getItemMeta and bufPeri.getItemMeta(beeSlot)
+      if meta then itemName = meta.name or "" end
+    end
+    local isPrincess = itemName:find("bee_princess") or itemName:find("bee_queen")
+    local dest = isPrincess and config.chests.princessStorage
+      or config.chests.droneBuffer
+    if dest and inventory.first(dest) then
+      inventory.moveTo(beeSource, beeSlot, dest)
+      return true
+    end
+  end
+  tracker.addLog("Trait prep: configure machines.traitImprinter for imprinting")
+  return false
+end
+
+-- Imprinter slot layout (1-indexed for CC)
+local IMP_TEMPLATE = 1
+local IMP_LABWARE = 2
+local IMP_BEE = 3
+local IMP_OUTPUT = 4
+
+--- Process the dedicated trait imprinter.
+-- Template stays in slot 1 permanently. Cycles bees through slots 3→4.
+-- Output: princesses/queens → apiaryReady, drones → droneBuffer, waste → export.
+-- @param config BeeOS config
+function imprinter.processTraitImprinter(config)
+  local impName = config.machines.traitImprinter
+  if not impName then return end
+  if not config.chests.apiaryReady then return end
+
+  local imp = peripheral.wrap(impName)
+  if not imp then return end
+
+  -- Phase 1: Collect output from slot 4
+  local outputMeta = imp.getItemMeta and imp.getItemMeta(IMP_OUTPUT)
+  local outputCleared = not outputMeta
+  if outputMeta then
+    local itemName = outputMeta.name or ""
+
+    if itemName:find("waste") then
+      local exportChests = inventory.getExportChests(config)
+      if inventory.first(exportChests) then
+        inventory.moveTo(impName, IMP_OUTPUT, exportChests)
+        tracker.addLog("Trait imprinter: genetic waste")
+        outputCleared = true
+      end
+
+    elseif itemName:find("bee_") then
+      local isPrincess = itemName:find("bee_princess") or itemName:find("bee_queen")
+      local dest = isPrincess and config.chests.apiaryReady
+        or config.chests.droneBuffer
+      -- Inspect before moving so we can log the species
+      local info = bee.inspect(imp, IMP_OUTPUT)
+      local sp = info and info.species or "?"
+      if inventory.first(dest) then
+        inventory.moveTo(impName, IMP_OUTPUT, dest)
+        tracker.addLog("Trait imprinter: " .. sp .. " -> "
+          .. (isPrincess and "apiaryReady" or "droneBuffer"))
+        outputCleared = true
+      end
+    end
+  end
+
+  -- Phase 2: Load next bee if machine is ready (output empty, bee slot empty)
+  if not outputCleared then return end
+  local beeCheck = imp.getItemMeta and imp.getItemMeta(IMP_BEE)
+  if beeCheck then return end  -- still processing
+
+  -- Verify template is still in slot 1
+  local tplCheck = imp.getItemMeta and imp.getItemMeta(IMP_TEMPLATE)
+  if not tplCheck or not (tplCheck.name or ""):find("gene_template") then
+    return  -- no template loaded, user needs to place it manually
+  end
+
+  -- Find a princess or queen in princessStorage to imprint
+  local beeMatches = inventory.findAcross(
+    config.chests.princessStorage, function(m)
+      local n = m.name or ""
+      return n:find("bee_princess") ~= nil or n:find("bee_queen") ~= nil
+    end)
+  if not beeMatches[1] then return end
+
+  -- Find labware
+  local labwareCheck = imp.getItemMeta and imp.getItemMeta(IMP_LABWARE)
+  if not labwareCheck then
+    local labwareMatches = inventory.findAcross(
+      config.chests.supplyInput, function(m)
+        return (m.name or ""):find("labware") ~= nil
+      end)
+    if not labwareMatches[1] then
+      tracker.addLog("Trait imprinter: no labware available")
+      return
+    end
+    local movedLab = inventory.move(
+      labwareMatches[1].source, labwareMatches[1].slot, impName, IMP_LABWARE)
+    if movedLab == 0 then return end
+  end
+
+  -- Load bee
+  local match = beeMatches[1]
+  local bufPeri = peripheral.wrap(match.source)
+  local species = "?"
+  if bufPeri then
+    local info = bee.inspect(bufPeri, match.slot)
+    if info then species = info.species or "?" end
+  end
+
+  local movedBee = inventory.move(match.source, match.slot, impName, IMP_BEE)
+  if movedBee > 0 then
+    imprinter.activeSpecies[impName] = species
+    tracker.addLog("Trait imprinter: loading " .. species)
+  end
+end
+
+--- Shutdown the dedicated trait imprinter.
+-- Extracts bees, labware, and waste but LEAVES the template in slot 1.
+-- @param config BeeOS config
+function imprinter.shutdownTraitImprinter(config)
+  local impName = config.machines.traitImprinter
+  if not impName then return end
+
+  local imp = peripheral.wrap(impName)
+  if not imp then return end
+
+  -- Extract slots 2 (labware), 3 (bee), 4 (output) — skip slot 1 (template)
+  for _, slot in ipairs({IMP_LABWARE, IMP_BEE, IMP_OUTPUT}) do
+    local meta = imp.getItemMeta and imp.getItemMeta(slot)
+    if meta then
+      local itemName = meta.name or ""
+      if itemName:find("bee_princess") or itemName:find("bee_queen") then
+        if inventory.first(config.chests.princessStorage) then
+          inventory.moveTo(impName, slot, config.chests.princessStorage)
+        end
+      elseif itemName:find("bee_drone") then
+        if inventory.first(config.chests.droneBuffer) then
+          inventory.moveTo(impName, slot, config.chests.droneBuffer)
+        end
+      elseif itemName:find("labware") then
+        if inventory.first(config.chests.supplyInput) then
+          inventory.moveTo(impName, slot, config.chests.supplyInput)
+        end
+      else
+        local exportChests = inventory.getExportChests(config)
+        if inventory.first(exportChests) then
+          inventory.moveTo(impName, slot, exportChests)
         end
       end
     end
   end
-  return nil, nil
-end
 
---- Send a bee to an idle imprinter with the apiary-ready template.
--- Called by apiary layer when a bee needs traits before entering an apiary.
--- @param beeSource Peripheral name where bee is
--- @param beeSlot Slot number
--- @param machines Table from network.scan()
--- @param config BeeOS config
--- @return boolean success
-function imprinter.sendToImprinter(beeSource, beeSlot, machines, config)
-  local imprinters = imprinter.getImprinters(machines, config)
-  if not next(imprinters) then return false end
-
-  -- Find an idle imprinter
-  local impName = nil
-  for name, imp in pairs(imprinters) do
-    if imp and not imprinter.activeSpecies[name] then
-      -- Check if it's actually empty
-      local idle = imprinter.collectOutput(name, imp, config)
-      if idle then
-        impName = name
-        break
-      end
-    end
-  end
-  if not impName then return false end
-
-  -- Find apiary-ready template
-  local tplSource, tplSlot = imprinter.findApiaryTemplate(config)
-  if not tplSource then
-    tracker.addLog("Apiary prep: no apiary-ready template in traitTemplates")
-    return false
-  end
-
-  -- Find labware
-  local labwareMatches = inventory.findAcross(
-    config.chests.supplyInput, function(m)
-      return (m.name or ""):find("labware") ~= nil
-    end)
-  if not labwareMatches[1] then
-    tracker.addLog("Apiary prep: no labware available")
-    return false
-  end
-
-  -- Inspect bee for logging
-  local bufPeri = peripheral.wrap(beeSource)
-  local species = "?"
-  if bufPeri then
-    local info = bee.inspect(bufPeri, beeSlot)
-    if info then species = info.species or "?" end
-  end
-
-  -- Load imprinter: bee + template + labware
-  local movedBee = inventory.move(beeSource, beeSlot, impName)
-  if movedBee > 0 then
-    local movedTpl = inventory.move(tplSource, tplSlot, impName)
-    local movedLab = inventory.move(
-      labwareMatches[1].source, labwareMatches[1].slot, impName)
-    if movedTpl > 0 and movedLab > 0 then
-      imprinter.activeSpecies[impName] = species
-      imprinter.hasTraitTemplate[impName] = true
-      tracker.addLog("Apiary prep: imprinting " .. species
-        .. " (" .. impName .. ")")
-      return true
-    else
-      tracker.addLog("Apiary prep: failed to load template/labware"
-        .. " (tpl=" .. movedTpl .. ", lab=" .. movedLab .. ")")
-    end
-  end
-  return false
+  imprinter.activeSpecies[impName] = nil
+  tracker.addLog("Trait imprinter: shutdown (template preserved)")
 end
 
 --- Collect output from all imprinters.
@@ -268,26 +351,6 @@ function imprinter.tick(machines, config)
     end
   end
 
-  -- Clean up: move any species templates out of traitTemplates chest
-  if config.chests.traitTemplates and inventory.first(config.chests.templateOutput) then
-    for _, chestName in ipairs(inventory.normalize(config.chests.traitTemplates)) do
-      local peri = peripheral.wrap(chestName)
-      if peri then
-        local size = peri.size and peri.size() or 0
-        for slot = 1, size do
-          local meta = peri.getItemMeta and peri.getItemMeta(slot)
-          if meta and (meta.name or ""):find("gene_template") then
-            local species = sampler.lookupTemplateHash(meta.nbtHash)
-            if species then
-              inventory.moveTo(chestName, slot, config.chests.templateOutput)
-              tracker.addLog("Moved species template (" .. species
-                .. ") out of traitTemplates")
-            end
-          end
-        end
-      end
-    end
-  end
 end
 
 --- Poll active imprinters for output, collecting as soon as ready.
@@ -301,14 +364,7 @@ function imprinter.pollActive(machines, config, duration)
     return
   end
 
-  local imprinters = {}
-  if config.machines.imprinters then
-    for _, name in ipairs(config.machines.imprinters) do
-      imprinters[name] = peripheral.wrap(name)
-    end
-  else
-    imprinters = machines.imprinter or {}
-  end
+  local imprinters = imprinter.getImprinters(machines, config)
 
   local deadline = os.clock() + duration
   while os.clock() < deadline do

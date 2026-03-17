@@ -13,6 +13,15 @@ local apiary = {}
 apiary.status = {}
 -- { [name] = { species, state, lastCheck, products } }
 
+--- Check if an apiary is assigned to breed mode.
+-- @param name Peripheral name
+-- @param config BeeOS config
+-- @return boolean
+function apiary.isBreedMode(name, config)
+  return config.apiaryAssignments
+    and config.apiaryAssignments[name] == "breed"
+end
+
 --- Check a single apiary and manage it.
 -- @param name Peripheral name of the apiary
 -- @param p Wrapped peripheral
@@ -25,6 +34,8 @@ function apiary.check(name, p, config, machines)
     state = "unknown",
     lastCheck = 0,
   }
+
+  local breedMode = apiary.isBreedMode(name, config)
 
   -- Check for active queen
   local queen = nil
@@ -39,9 +50,20 @@ function apiary.check(name, p, config, machines)
     end
     status.species = species
 
-    -- Check if the queen has required traits; if not, she's stuck
-    local queenInfo = bee.inspect(p, 1)
-    if queenInfo and imprinter.needsImprinting(queenInfo, config) then
+    if breedMode then
+      -- Breed mode: extract queen immediately for trait imprinting
+      tracker.addLog("Breed apiary: extracting queen (" .. species .. ")")
+      apiary.extractInputs(name, p, config)
+      apiary.extractOutput(name, p, config)
+      status.state = "idle"
+
+      local restarted = apiary.tryRestart(name, p, config, machines)
+      if restarted then
+        status.state = "restarting"
+        tracker.addLog("Restarted breed apiary: " .. name)
+      end
+    elseif imprinter.needsImprinting(bee.inspect(p, 1), config) then
+      -- Production mode: queen missing traits, extract and restart
       tracker.addLog("Stuck queen in " .. name .. ": missing traits, extracting")
       apiary.extractInputs(name, p, config)
       status.state = "idle"
@@ -117,9 +139,8 @@ function apiary.extractOutput(name, p, config)
   end
 end
 
---- Extract bees from apiary input slots (for shutdown/recovery).
+--- Extract bees from apiary input slots (for shutdown/recovery/breed mode).
 -- Only extracts from slots 1-2 (princess/queen and drone inputs).
--- Does NOT run during normal operation — only during shutdown.
 -- @param name Peripheral name
 -- @param p Wrapped peripheral
 -- @param config BeeOS config
@@ -129,6 +150,7 @@ function apiary.extractInputs(name, p, config)
     if meta then
       local itemName = meta.name or ""
       if itemName:find("bee_princess") or itemName:find("bee_queen") then
+        -- Route to princessStorage (trait imprinter will pick up from there)
         if inventory.first(config.chests.princessStorage) then
           inventory.moveTo(name, slot, config.chests.princessStorage)
         end
@@ -142,38 +164,80 @@ function apiary.extractInputs(name, p, config)
 end
 
 --- Try to restart an apiary with a princess and drone.
--- Checks princessStorage first, then droneBuffer for princesses.
--- Bees are checked for required traits before entering the apiary;
--- if traits are missing, the bee is routed to the imprinter with the
--- apiary-ready template.
+-- Breed-mode apiaries pull from princessStorage without trait checks.
+-- Production apiaries pull from apiaryReady first (pre-imprinted),
+-- falling back to princessStorage with trait checks.
 -- @param name Peripheral name
 -- @param p Wrapped peripheral
 -- @param config BeeOS config
 -- @param machines Table from network.scan()
 -- @return boolean True if successfully restarted
 function apiary.tryRestart(name, p, config, machines)
+  local breedMode = apiary.isBreedMode(name, config)
+
   -- Check what species this apiary should breed
   local targetSpecies = nil
-  if config.apiaryAssignments then
+  if config.apiaryAssignments and not breedMode then
     targetSpecies = config.apiaryAssignments[name]
   end
 
   -- Check bootstrap queue for priority species (when no assignment set)
   local bootstrapTarget = nil
-  if not targetSpecies then
+  if not targetSpecies and not breedMode then
     local queue = state.load("bootstrap_queue", {})
     bootstrapTarget = next(queue)
   end
 
-  -- Try queens first — they go in slot 1 alone, no drone needed.
-  -- Always try any queen to break it into princess + drone.
+  if breedMode then
+    return apiary.tryRestartBreed(name, config)
+  end
+
+  -- Production mode: try apiaryReady first, then fall back to princessStorage
+  local readyChests = config.chests.apiaryReady
+  if readyChests then
+    -- Try queens from apiaryReady (no trait check needed)
+    local wantSpecies = targetSpecies or bootstrapTarget
+    local qSlot, qSrc = apiary.findQueen(config, wantSpecies, readyChests)
+    if not qSlot then
+      qSlot, qSrc = apiary.findQueen(config, nil, readyChests)
+    end
+    if qSlot then
+      local moved = inventory.move(qSrc, qSlot, name, 1)
+      if moved > 0 then
+        tracker.addLog("Queen placed from apiaryReady: " .. name)
+        return true
+      end
+    end
+
+    -- Try princess+drone from apiaryReady (no trait check needed)
+    local pSlot, pSrc = apiary.findPrincess(config,
+      wantSpecies, readyChests)
+    if pSlot then
+      local droneSlot, droneSrc = apiary.findDrone(config, wantSpecies)
+      if not droneSlot then
+        droneSlot, droneSrc = apiary.findDrone(config, nil)
+      end
+      if droneSlot then
+        local movedP = inventory.move(pSrc, pSlot, name, 1)
+        if movedP > 0 then
+          local movedD = inventory.move(droneSrc, droneSlot, name, 2)
+          if movedD > 0 then
+            tracker.addLog("Princess+drone from apiaryReady: " .. name)
+            return true
+          end
+        end
+      end
+    end
+  end
+
+  -- Fallback: princessStorage with trait checks (original behavior)
+  -- Try queens first
   local queenSpecies = targetSpecies or bootstrapTarget
   local queenSlot, queenSource = apiary.findQueen(config, queenSpecies)
   if not queenSlot then
     queenSlot, queenSource = apiary.findQueen(config, nil)
   end
   if queenSlot then
-    -- Check queen traits before placing in apiary (mirrors princess path below)
     local qPeri = peripheral.wrap(queenSource)
     if qPeri then
       local queenInfo = bee.inspect(qPeri, queenSlot)
@@ -197,7 +261,6 @@ function apiary.tryRestart(name, p, config, machines)
     targetSpecies or bootstrapTarget)
   if not princessSlot then return false end
 
-  -- Check princess traits — if missing, route to imprinter
   local sourcePeri = peripheral.wrap(princessSource)
   if not sourcePeri then return false end
 
@@ -207,49 +270,10 @@ function apiary.tryRestart(name, p, config, machines)
     return false
   end
 
-  -- Find a matching drone across all drone buffers
   local wantSpecies = targetSpecies or (princessInfo and princessInfo.species)
-
-  local droneSlot, droneSource = nil, nil
-  local droneMatches = inventory.findAcross(config.chests.droneBuffer, function(meta)
-    return (meta.name or ""):find("bee_drone") ~= nil
-  end)
-
-  for _, match in ipairs(droneMatches) do
-    local bufPeri = peripheral.wrap(match.source)
-    if bufPeri and bee.isDrone(bufPeri, match.slot) then
-      if wantSpecies then
-        local info = bee.inspect(bufPeri, match.slot)
-        if info and info.species == wantSpecies then
-          if imprinter.needsImprinting(info, config) then
-            imprinter.sendToImprinter(match.source, match.slot,
-              machines, config)
-          else
-            droneSlot = match.slot
-            droneSource = match.source
-            break
-          end
-        end
-      else
-        local info = bee.inspect(bufPeri, match.slot)
-        if info then
-          if imprinter.needsImprinting(info, config) then
-            imprinter.sendToImprinter(match.source, match.slot,
-              machines, config)
-          else
-            droneSlot = match.slot
-            droneSource = match.source
-            break
-          end
-        end
-      end
-    end
-  end
-
+  local droneSlot, droneSource = apiary.findDrone(config, wantSpecies, machines)
   if not droneSlot then return false end
 
-  -- Move princess to slot 1, drone to slot 2 of the apiary
-  -- (Slot numbers may need adjustment after Phase 0 testing)
   local movedPrincess = inventory.move(princessSource, princessSlot, name, 1)
   if movedPrincess > 0 then
     local movedDrone = inventory.move(droneSource, droneSlot, name, 2)
@@ -261,16 +285,69 @@ function apiary.tryRestart(name, p, config, machines)
   return false
 end
 
---- Find a princess in princessStorage.
+--- Try to restart a breed-mode apiary.
+-- Grabs any princess + any drone from storage, no trait checks.
+-- @param name Peripheral name
+-- @param config BeeOS config
+-- @return boolean True if successfully restarted
+function apiary.tryRestartBreed(name, config)
+  if not inventory.first(config.chests.droneBuffer) then return false end
+
+  local princessSlot, princessSource = apiary.findPrincess(config, nil)
+  if not princessSlot then return false end
+
+  local droneSlot, droneSource = apiary.findDrone(config, nil)
+  if not droneSlot then return false end
+
+  local movedPrincess = inventory.move(princessSource, princessSlot, name, 1)
+  if movedPrincess > 0 then
+    local movedDrone = inventory.move(droneSource, droneSlot, name, 2)
+    if movedDrone > 0 then
+      tracker.addLog("Breed apiary loaded: " .. name)
+      return true
+    end
+  end
+
+  return false
+end
+
+--- Find a drone in droneBuffer.
+-- Optionally checks traits and sends to imprinter if needed.
+-- @param config BeeOS config
+-- @param wantSpecies Optional species filter
+-- @param machines Optional machines table (for imprinter fallback)
+-- @return slot, sourceName or nil, nil
+function apiary.findDrone(config, wantSpecies, machines)
+  local droneMatches = inventory.findAcross(config.chests.droneBuffer, function(meta)
+    return (meta.name or ""):find("bee_drone") ~= nil
+  end)
+
+  for _, match in ipairs(droneMatches) do
+    -- findAcross already confirmed bee_drone in name; skip redundant isDrone check
+    local bufPeri = peripheral.wrap(match.source)
+    if bufPeri then
+      local info = bee.inspect(bufPeri, match.slot)
+      if info and (not wantSpecies or info.species == wantSpecies) then
+        if machines and imprinter.needsImprinting(info, config) then
+          imprinter.sendToImprinter(match.source, match.slot,
+            machines, config)
+        else
+          return match.slot, match.source
+        end
+      end
+    end
+  end
+
+  return nil, nil
+end
+
+--- Find a princess in storage.
 -- @param config BeeOS config
 -- @param targetSpecies Optional species filter
+-- @param chests Optional chest config override (defaults to princessStorage)
 -- @return slot, sourceName or nil, nil
-function apiary.findPrincess(config, targetSpecies)
-  -- Only search princessStorage — princesses should never be in droneBuffer
-  local sources = {}
-  for _, n in ipairs(inventory.normalize(config.chests.princessStorage)) do
-    sources[#sources + 1] = n
-  end
+function apiary.findPrincess(config, targetSpecies, chests)
+  local sources = inventory.normalize(chests or config.chests.princessStorage)
 
   for _, sourceName in ipairs(sources) do
     local peri = peripheral.wrap(sourceName)
@@ -294,13 +371,14 @@ function apiary.findPrincess(config, targetSpecies)
   return nil, nil
 end
 
---- Find a queen in princessStorage.
+--- Find a queen in storage.
 -- Queens can be placed directly in an apiary without a drone.
 -- @param config BeeOS config
 -- @param targetSpecies Optional species filter
+-- @param chests Optional chest config override (defaults to princessStorage)
 -- @return slot, sourceName or nil, nil
-function apiary.findQueen(config, targetSpecies)
-  local sources = inventory.normalize(config.chests.princessStorage)
+function apiary.findQueen(config, targetSpecies, chests)
+  local sources = inventory.normalize(chests or config.chests.princessStorage)
   for _, sourceName in ipairs(sources) do
     local peri = peripheral.wrap(sourceName)
     if peri then

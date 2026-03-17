@@ -81,8 +81,12 @@ function analyzer.tick(machines, config)
   for _, n in ipairs(inventory.normalize(config.chests.droneBuffer)) do
     searchChests[#searchChests + 1] = n
   end
-  for _, n in ipairs(inventory.normalize(config.chests.princessStorage)) do
-    searchChests[#searchChests + 1] = n
+  -- Skip princessStorage when apiaryReady is configured — the dedicated
+  -- trait imprinter handles princesses/queens without needing analysis.
+  if not config.chests.apiaryReady then
+    for _, n in ipairs(inventory.normalize(config.chests.princessStorage)) do
+      searchChests[#searchChests + 1] = n
+    end
   end
   if #searchChests == 0 then return end
 

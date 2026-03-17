@@ -43,8 +43,8 @@ config.chests = {
   supplyInput = nil,      -- "minecraft:chest_3" (AE2 export bus: labware, blanks, rocky bees)
   princessStorage = nil,  -- "minecraft:chest_4" (princess overflow when apiaries full)
   export = nil,           -- "minecraft:chest_5" (AE2 import bus: combs, surplus, waste)
-  traitTemplates = nil,   -- "minecraft:chest_6" (pre-stocked trait templates for imprinter)
   discoveryStaging = nil, -- Staging chest for imprinted bees between discovery steps
+  apiaryReady = nil,      -- Trait-imprinted bees ready for apiary placement
 
   -- Legacy aliases (still work if export is nil)
   productOutput = nil,
@@ -72,11 +72,13 @@ config.machines = {
   transposers = nil,    -- e.g. { "gendustry:transposer_0" }
   dnaExtractors = nil,  -- e.g. { "gendustry:extractor_0" }
   analyzer = nil,       -- e.g. "forestry:analyzer_0" (for mutation queries)
+  traitImprinter = nil, -- Dedicated imprinter for trait prep (template stays loaded)
 }
 
 -- === Apiary Assignments ===
 -- Map apiary peripheral names to species they should breed.
 -- If nil, BeeOS manages assignments automatically.
+-- Use "breed" to designate a breeding apiary (produces queens for apiaryReady).
 -- Example: { ["gendustry:industrial_apiary_0"] = "Forest" }
 config.apiaryAssignments = nil
 

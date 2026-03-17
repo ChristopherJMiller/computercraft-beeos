@@ -4,7 +4,7 @@
 
 local state = require("lib.state")
 local bee = require("lib.bee")
-local inventory = require("lib.inventory")
+
 
 local tracker = {}
 
@@ -51,7 +51,7 @@ end
 
 --- Scan all inventories and rebuild the species catalog.
 -- @param machines Table from network.scan()
--- @param config Optional BeeOS config (used to exclude traitTemplates from unknown hash count)
+-- @param config Optional BeeOS config
 function tracker.scan(machines, config)
   local catalog = {}
 
@@ -193,14 +193,6 @@ function tracker.scan(machines, config)
   local unknownTemplates = 0
   local templateMap = state.load("template_hashes", {})
 
-  -- Build set of traitTemplates chests to exclude from unknown hash count
-  local traitChests = {}
-  if config and config.chests and config.chests.traitTemplates then
-    for _, name in ipairs(inventory.normalize(config.chests.traitTemplates)) do
-      traitChests[name] = true
-    end
-  end
-
   for _, entry in ipairs(deferred) do
     local meta = entry.meta
     local name = meta.name or ""
@@ -225,7 +217,7 @@ function tracker.scan(machines, config)
         ensure(templateSpecies)
         catalog[templateSpecies].templates =
           catalog[templateSpecies].templates + (meta.count or 1)
-      elseif not traitChests[entry.periName] then
+      else
         unknownTemplates = unknownTemplates + 1
       end
     end

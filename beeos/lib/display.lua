@@ -45,8 +45,9 @@ local CONFIG_ROLES = {
   { key = "chests.templateOutput",    label = "Template Output",  multi = true },
   { key = "chests.supplyInput",       label = "Supply Input",     multi = true },
   { key = "chests.princessStorage",   label = "Princess Store",   multi = true },
-  { key = "chests.traitTemplates",    label = "Trait Templates",  multi = true },
+  { key = "chests.apiaryReady",      label = "Apiary Ready",     multi = true },
   { key = "chests.discoveryStaging",  label = "Disco Staging",    multi = true },
+  { key = "machines.traitImprinter", label = "Trait Imprinter",  multi = false },
   { key = "turtle.name",             label = "Craft Turtle",     multi = false },
   { key = "turtle.outputChest",     label = "Turtle Output",    multi = false },
 }
@@ -251,6 +252,7 @@ local function drawSpecies(mon, w, h, startY)
   drawText(mon, 26, y, "Tmpl", colors.yellow)
   drawText(mon, 32, y, "Drn", colors.yellow)
   drawText(mon, 37, y, "Prnc", colors.yellow)
+  drawText(mon, 42, y, "Qn", colors.yellow)
   y = y + 1
   drawLine(mon, y, w, "-")
   y = y + 1
@@ -295,6 +297,7 @@ local function drawSpecies(mon, w, h, startY)
         sp.data.templates == 0 and colors.orange or colors.white)
       drawText(mon, 32, y, string.format("%3d", sp.data.drones), colors.lightGray)
       drawText(mon, 37, y, string.format("%3d", sp.data.princesses), colors.lightGray)
+      drawText(mon, 42, y, string.format("%3d", sp.data.queens or 0), colors.lightGray)
       y = y + 1
     end
   end
