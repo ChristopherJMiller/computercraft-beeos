@@ -254,11 +254,10 @@ function imprinter.processTraitImprinter(config)
     return  -- no template loaded, user needs to place it manually
   end
 
-  -- Find a princess or queen in princessStorage to imprint
+  -- Find a queen in princessStorage to imprint (princesses are left for discovery)
   local beeMatches = inventory.findAcross(
     config.chests.princessStorage, function(m)
-      local n = m.name or ""
-      return n:find("bee_princess") ~= nil or n:find("bee_queen") ~= nil
+      return (m.name or ""):find("bee_queen") ~= nil
     end)
   if not beeMatches[1] then return end
 
