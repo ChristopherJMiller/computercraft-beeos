@@ -134,14 +134,18 @@ end
 -- @param p Wrapped peripheral
 -- @param config BeeOS config
 function apiary.extractInputs(name, p, config)
+  -- Production apiaries have trait-imprinted queens; route to apiaryReady.
+  -- Breed-mode apiaries have un-imprinted queens; route to princessStorage.
+  local breedMode = apiary.isBreedMode(name, config)
+  local queenDest = (not breedMode and config.chests.apiaryReady)
+    or config.chests.princessStorage
   for slot = 1, 2 do
     local meta = p.getItemMeta and p.getItemMeta(slot)
     if meta then
       local itemName = meta.name or ""
       if itemName:find("bee_princess") or itemName:find("bee_queen") then
-        -- Route to princessStorage (trait imprinter will pick up from there)
-        if inventory.first(config.chests.princessStorage) then
-          inventory.moveTo(name, slot, config.chests.princessStorage)
+        if inventory.first(queenDest) then
+          inventory.moveTo(name, slot, queenDest)
         end
       elseif itemName:find("bee_drone") then
         if inventory.first(config.chests.droneBuffer) then
