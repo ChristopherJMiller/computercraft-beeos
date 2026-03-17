@@ -105,7 +105,7 @@ function analyzer.tick(machines, config)
         local info = bee.inspect(bufPeri, match.slot)
         if info and analyzer.needsAnalysis(info)
             and (info.species or ""):lower() ~= "rocky" then
-          local moved = inventory.move(match.source, match.slot, anlName)
+          local moved = inventory.move(match.source, match.slot, anlName, nil, 1)
           if moved > 0 then
             analyzer.activeSpecies[anlName] = info.species or "?"
             tracker.addLog("Analyzing: " .. (info.species or "?") ..

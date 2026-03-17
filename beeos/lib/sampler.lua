@@ -152,7 +152,7 @@ function sampler.sendToSampler(fromPeri, fromSlot, machines, config)
         local species = info and info.species or "Unknown"
 
         -- Send the drone
-        local moved = inventory.move(fromPeri, fromSlot, samplerName)
+        local moved = inventory.move(fromPeri, fromSlot, samplerName, nil, 1)
         if moved > 0 then
           sampler.state = "sampling"
           sampler.activeSpecies[samplerName] = species

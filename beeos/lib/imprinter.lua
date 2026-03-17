@@ -286,7 +286,7 @@ function imprinter.processTraitImprinter(config)
     if info then species = info.species or "?" end
   end
 
-  local movedBee = inventory.move(match.source, match.slot, impName, IMP_BEE)
+  local movedBee = inventory.move(match.source, match.slot, impName, IMP_BEE, 1)
   if movedBee > 0 then
     imprinter.activeSpecies[impName] = species
     tracker.addLog("Trait imprinter: loading " .. species)

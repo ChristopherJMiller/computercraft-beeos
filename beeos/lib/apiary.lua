@@ -191,7 +191,7 @@ function apiary.tryRestart(name, p, config, machines)
       qSlot, qSrc = apiary.findQueen(config, nil, readyChests)
     end
     if qSlot then
-      local moved = inventory.move(qSrc, qSlot, name, 1)
+      local moved = inventory.move(qSrc, qSlot, name, 1, 1)
       if moved > 0 then
         tracker.addLog("Queen placed from apiaryReady: " .. name)
         return true
@@ -207,9 +207,9 @@ function apiary.tryRestart(name, p, config, machines)
         droneSlot, droneSrc = apiary.findDrone(config, nil)
       end
       if droneSlot then
-        local movedP = inventory.move(pSrc, pSlot, name, 1)
+        local movedP = inventory.move(pSrc, pSlot, name, 1, 1)
         if movedP > 0 then
-          local movedD = inventory.move(droneSrc, droneSlot, name, 2)
+          local movedD = inventory.move(droneSrc, droneSlot, name, 2, 1)
           if movedD > 0 then
             tracker.addLog("Princess+drone from apiaryReady: " .. name)
             return true
@@ -236,7 +236,7 @@ function apiary.tryRestart(name, p, config, machines)
       end
     end
 
-    local movedQueen = inventory.move(queenSource, queenSlot, name, 1)
+    local movedQueen = inventory.move(queenSource, queenSlot, name, 1, 1)
     if movedQueen > 0 then
       tracker.addLog("Queen placed in apiary: " .. name)
       return true
@@ -263,9 +263,9 @@ function apiary.tryRestart(name, p, config, machines)
   local droneSlot, droneSource = apiary.findDrone(config, wantSpecies, machines)
   if not droneSlot then return false end
 
-  local movedPrincess = inventory.move(princessSource, princessSlot, name, 1)
+  local movedPrincess = inventory.move(princessSource, princessSlot, name, 1, 1)
   if movedPrincess > 0 then
-    local movedDrone = inventory.move(droneSource, droneSlot, name, 2)
+    local movedDrone = inventory.move(droneSource, droneSlot, name, 2, 1)
     if movedDrone > 0 then
       return true
     end
@@ -288,9 +288,9 @@ function apiary.tryRestartBreed(name, config)
   local droneSlot, droneSource = apiary.findDrone(config, nil)
   if not droneSlot then return false end
 
-  local movedPrincess = inventory.move(princessSource, princessSlot, name, 1)
+  local movedPrincess = inventory.move(princessSource, princessSlot, name, 1, 1)
   if movedPrincess > 0 then
-    local movedDrone = inventory.move(droneSource, droneSlot, name, 2)
+    local movedDrone = inventory.move(droneSource, droneSlot, name, 2, 1)
     if movedDrone > 0 then
       tracker.addLog("Breed apiary loaded: " .. name)
       return true

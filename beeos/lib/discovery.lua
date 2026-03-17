@@ -533,7 +533,7 @@ function discovery.prepare(machines, config)
     tracker.addLog("Imprinting drone as " .. mut.parent2 .. "...")
 
     local movedDrone = inventory.move(droneMatch.source, droneMatch.slot,
-      imprinterName, IMP_BEE)
+      imprinterName, IMP_BEE, 1)
     if movedDrone == 0 then
       goIdle("Failed to load drone")
       return false
@@ -573,7 +573,7 @@ function discovery.prepare(machines, config)
 
     local movedBee = inventory.move(
       discovery.princessMatch.source, discovery.princessMatch.slot,
-      imprinterName, IMP_BEE)
+      imprinterName, IMP_BEE, 1)
     if movedBee == 0 then
       goIdle("Failed to load princess")
       return false
@@ -726,7 +726,7 @@ function discovery.checkImprinting(machines, config)
         (discovery.currentMutation and discovery.currentMutation.parent2 or "?") .. "...")
 
       local movedDrone = inventory.move(droneMatch.source, droneMatch.slot,
-        imprinterName, IMP_BEE)
+        imprinterName, IMP_BEE, 1)
       if movedDrone == 0 then
         goIdle("Failed to load drone")
         return false
@@ -838,7 +838,7 @@ function discovery.startMutation(machines, config, imprinterName)
   if imprinterName then
     -- Drone was just imprinted, move from imprinter output
     local movedDrone = inventory.move(imprinterName, IMP_OUTPUT,
-      mutatronName, MUT_PARENT2)
+      mutatronName, MUT_PARENT2, 1)
     if movedDrone == 0 then
       goIdle("Failed to load drone to mutatron")
       return false
@@ -849,7 +849,7 @@ function discovery.startMutation(machines, config, imprinterName)
     -- Drone already correct species, move from original location
     local movedDrone = inventory.move(
       discovery.matchedDrone.source, discovery.matchedDrone.slot,
-      mutatronName, MUT_PARENT2)
+      mutatronName, MUT_PARENT2, 1)
     if movedDrone == 0 then
       goIdle("Failed to load matched drone to mutatron")
       return false
@@ -863,7 +863,7 @@ function discovery.startMutation(machines, config, imprinterName)
   if discovery.stagedPrincess then
     local movedPrincess = inventory.move(
       discovery.stagedPrincess.source, discovery.stagedPrincess.slot,
-      mutatronName, MUT_PARENT1)
+      mutatronName, MUT_PARENT1, 1)
     if movedPrincess == 0 then
       goIdle("Failed to load princess to mutatron")
       return false
