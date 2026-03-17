@@ -26,12 +26,11 @@ function bee.speciesMatch(a, b)
   return a:gsub("%s", ""):lower() == b:gsub("%s", ""):lower()
 end
 
---- Inspect a bee in an inventory slot.
--- @param inventory Wrapped peripheral with getItemMeta
--- @param slot Slot number to inspect
+--- Parse bee info from pre-fetched item metadata.
+-- Like inspect() but skips the getItemMeta() call.
+-- @param meta Table from getItemMeta()
 -- @return Table with species info, or nil if not a bee
-function bee.inspect(inventory, slot)
-  local meta = inventory.getItemMeta(slot)
+function bee.inspectMeta(meta)
   if not meta or not meta.individual then
     return nil
   end
@@ -94,6 +93,14 @@ function bee.inspect(inventory, slot)
     displayName = meta.displayName,
     count = meta.count or 1,
   }
+end
+
+--- Inspect a bee in an inventory slot.
+-- @param inventory Wrapped peripheral with getItemMeta
+-- @param slot Slot number to inspect
+-- @return Table with species info, or nil if not a bee
+function bee.inspect(inventory, slot)
+  return bee.inspectMeta(inventory.getItemMeta(slot))
 end
 
 --- Check if an item in a slot is any kind of bee (princess, drone, or queen).
