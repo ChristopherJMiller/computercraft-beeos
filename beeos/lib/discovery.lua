@@ -225,12 +225,23 @@ function discovery.prepare(machines, config)
     return false
   end
 
-  -- Find imprinter
+  -- Find imprinter (exclude dedicated trait imprinter)
+  local dedicated = config.machines.traitImprinter
   local imprinterName
   if config.machines.imprinters then
-    imprinterName = config.machines.imprinters[1]
+    for _, name in ipairs(config.machines.imprinters) do
+      if name ~= dedicated then
+        imprinterName = name
+        break
+      end
+    end
   else
-    imprinterName = next(machines.imprinter or {})
+    for name in pairs(machines.imprinter or {}) do
+      if name ~= dedicated then
+        imprinterName = name
+        break
+      end
+    end
   end
 
   if not imprinterName then
